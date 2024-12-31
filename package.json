@@ -1,26 +1,25 @@
 {
-  "name": "com.reactunity.quickjs",
+  "name": "com.unity.quickjs",
   "author": {
-    "name": "Gokhan Kurt",
-    "email": "krtgkn@gmail.com",
-    "url": "https://github.com/KurtGokhan"
+    "name": "",
+    "email": "",
+    "url": ""
   },
-  "displayName": "React Unity QuickJS",
+  "displayName": "QuickJS",
   "version": "0.19.0",
   "unity": "2019.4",
-  "description": "QuickJS Plugin for ReactUnity",
+  "description": "QuickJS Plugin for unity",
   "keywords": [
-    "ReactUnity",
     "QuickJS"
   ],
-  "category": "UI",
+  "category": "Script",
   "type": "library",
-  "documentationUrl": "https://reactunity.github.io/",
+  "documentationUrl": "",
   "license": "MIT",
   "samples": [],
   "dependencies": {},
   "repository": {
-    "url": "https://github.com/ReactUnity/quickjs.git",
+    "url": "https://github.com/swindy/quickjs.git",
     "type": "git"
   }
 }
