@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -35,7 +36,7 @@ namespace QuickJS.Binding
                     {
                         this.cg.WriteParameterException(declaringType, eventInfo.Name, eventTypeName, 1);
                     }
-                    this.cg.cs.AppendLine("{0}.{1} += value;", caller, eventInfo.Name);
+                    this.cg.cs.AppendLine("{0}.{1} += value;", caller, BindingManager.GetCSVariable(eventInfo.Name));
                     this.cg.cs.AppendLine("break;");
                 }
                 this.cg.cs.AppendLine("case Values.EVT_OP_REMOVE:");
@@ -47,7 +48,7 @@ namespace QuickJS.Binding
                     {
                         this.cg.WriteParameterException(declaringType, eventInfo.Name, eventTypeName, 1);
                     }
-                    this.cg.cs.AppendLine("{0}.{1} -= value;", caller, eventInfo.Name);
+                    this.cg.cs.AppendLine("{0}.{1} -= value;", caller, BindingManager.GetCSVariable(eventInfo.Name));
                     this.cg.cs.AppendLine("break;");
                 }
                 this.cg.cs.AppendLine("default: throw new JSException(\"invalid event op\");");
@@ -66,3 +67,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

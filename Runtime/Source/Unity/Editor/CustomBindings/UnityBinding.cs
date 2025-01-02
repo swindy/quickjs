@@ -52,6 +52,7 @@ namespace jsb.Editor
             bindingManager.SetTypeBlocked(typeof(UnityEngine.ISerializationCallbackReceiver));
             bindingManager.SetTypeBlocked(typeof(UnityEngine.Playables.ScriptPlayable<>));
             bindingManager.SetTypeBlocked(typeof(AOT.MonoPInvokeCallbackAttribute));
+            bindingManager.AddUnsupportedRelevantType(typeof(Unity.Collections.NativeArray<>));
 
             // SetTypeBlocked(typeof(RendererExtensions));
             bindingManager.TransformType(typeof(UnityEngine.Events.UnityEvent<>))
@@ -147,6 +148,7 @@ namespace jsb.Editor
             bindingManager.SetTypeBlocked(typeof(UnityEngine.UIElements.IExperimentalFeatures));
             bindingManager.SetTypeBlocked(typeof(UnityEngine.UIElements.Experimental.ITransitionAnimations));
             bindingManager.SetTypeBlocked(typeof(UnityEngine.UIElements.Experimental.IValueAnimation));
+            
             bindingManager.TransformType(typeof(UnityEngine.UIElements.VisualElement.UxmlTraits)).Rename("UxmlTraits0");
             bindingManager.TransformType(typeof(UnityEngine.UIElements.EventBase<>)).Rename("EventBase1");
             bindingManager.TransformType(typeof(UnityEngine.UIElements.UxmlFactory<>)).Rename("UxmlFactory1");

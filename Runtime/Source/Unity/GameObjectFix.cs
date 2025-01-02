@@ -1,12 +1,11 @@
 #if !JSB_UNITYLESS
 using System;
-using System.Reflection;
 
 namespace QuickJS.Unity
 {
     using Native;
+    using Errors;
     using Binding;
-    using UnityEngine;
 
     public static class GameObjectFix
     {
@@ -375,4 +374,4 @@ namespace QuickJS.Unity
         }
     }
 }
-#endif
+#endif // !JSB_UNITYLESS

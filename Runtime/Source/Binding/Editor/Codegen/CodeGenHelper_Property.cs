@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -19,7 +20,7 @@ namespace QuickJS.Binding
             Type callerType;
             var caller = this.cg.AppendGetThisCS(bindingInfo.getMethod, false, out callerType);
 
-            this.cg.cs.AppendLine("var ret = {0}.{1};", caller, bindingInfo.propertyInfo.Name);
+            this.cg.cs.AppendLine("var ret = {0}.{1};", caller, BindingManager.GetCSVariable(bindingInfo.propertyInfo.Name));
             var pusher = this.cg.AppendValuePusher(bindingInfo.propertyType, "ret");
             this.cg.cs.AppendLine("return {0};", pusher);
         }
@@ -52,7 +53,7 @@ namespace QuickJS.Binding
             {
                 this.cg.WriteParameterException(declaringType, propertyInfo.Name, propertyType, 0);
             }
-            this.cg.cs.AppendLine("{0}.{1} = value;", caller, propertyInfo.Name);
+            this.cg.cs.AppendLine("{0}.{1} = value;", caller, BindingManager.GetCSVariable(propertyInfo.Name));
             if (declaringType.IsValueType && !propertyBindingInfo.setMethod.IsStatic)
             {
                 // 非静态结构体属性修改, 尝试替换实例
@@ -67,3 +68,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

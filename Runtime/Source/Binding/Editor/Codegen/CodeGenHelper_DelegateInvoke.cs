@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -46,7 +47,7 @@ namespace QuickJS.Binding
         {
             var inputParameters = GetInputParameters(parameters);
             var nargs = inputParameters.Length;
-            var retName = this.cg.bindingManager.GetUniqueName(parameters, "ret");
+            var retName = CodeGenUtils.GetUniqueName(parameters, "ret");
             var firstArgument = typeof(ScriptDelegate) + " fn";
             var returnTypeName = this.cg.bindingManager.GetCSTypeFullName(returnType);
             var arglist = this.cg.bindingManager.GetCSArglistDecl(parameters);
@@ -231,3 +232,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

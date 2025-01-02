@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 
@@ -33,7 +34,7 @@ namespace QuickJS.Binding
         public string sourceDir = "Scripts/src";
 
         /// <summary>
-        /// [optional] read this property as javascript dir for js_reload 
+        /// [optional] read this property as javascript dir for js_reload (https://github.com/ialex32x/plover)
         /// !! this property is read only when tsconfig.json can not be located at the project root path or compilerOptions.outDir is not configured
         /// </summary>
         public string javascriptDir = ""; // Scripts/out
@@ -57,6 +58,11 @@ namespace QuickJS.Binding
         /// location of XmlDoc generated from Assembly-CSharp.dll 
         /// </summary>
         public string xmlDocDir = "Assets/Generated/Docs";
+
+        /// <summary>
+        /// output as a const field in generated code
+        /// </summary>
+        public string vendor = "";
 
         /// <summary>
         /// all related modules information generated in the binding process will be written into this file. 
@@ -90,6 +96,18 @@ namespace QuickJS.Binding
         /// emit binding code for operator methods even if operator overlaoding enabled
         /// </summary>
         public bool alwaysEmitOperatorMethod = true;
+
+        /// <summary>
+        /// [EXPERIMENTAL][UNFINISHED] 
+        /// csharp array => js array / csharp dictionary => js map 
+        /// (with Proxy)
+        /// </summary>
+        public bool enableTypeProxy = false;
+
+        /// <summary>
+        /// all obsolete types/members will not be exported if set true
+        /// </summary>
+        public bool excludeObsoleteItems = true;
 
         /// <summary>
         /// optional entry point for editor scripting
@@ -167,6 +185,16 @@ namespace QuickJS.Binding
         public string defaultJSModule = "global";
 
         /// <summary>
+        /// Determines which module will the types be exported. <br/>
+        ///     legacy(default): export types into dispersed modules (depends on it's namespace and outer class) <br/>
+        ///     singular(experimental): export types into a single module  <br/>
+        /// NOT_IMPLEMENTED
+        /// </summary>
+        public string moduleStyle = "legacy";
+
+        public string singularModuleName = "interop";
+
+        /// <summary>
         /// the optional suffix for the generated d.ts file
         /// </summary>
         public string extraExtForTypescript = "";
@@ -199,7 +227,7 @@ namespace QuickJS.Binding
         });
 
         /// <summary>
-        /// all the types in the assemblies in this list will not automatically exported 
+        /// all the types in the listed assemblies will not be exported automatically
         /// </summary>
         public List<string> explicitAssemblies = new List<string>(new string[]
         {
@@ -208,7 +236,7 @@ namespace QuickJS.Binding
         });
 
         /// <summary>
-        /// all the types in the assemblies in this list will automatically exported (except the manually blocked types in BindingManager)
+        /// all the types in the listed assemblies will be exported automatically (except the manually blocked types in BindingManager)
         /// </summary>
         public List<string> implicitAssemblies = new List<string>(new string[]
         {
@@ -260,26 +288,27 @@ namespace QuickJS.Binding
             "UnityEditor.WSAUWPBuildType",
             "UnityEditor.WSABuildAndRunDeployTarget",
             "UnityEditor.WSABuildType",
-            "UnityEditor.HumanTemplate", 
-            "UnityEditor.TakeInfo", 
-            "UnityEditor.L10n", 
-            "UnityEditor.Build.Reporting", 
-            "UnityEditor.TypeCache", 
-            "UnityEditor.SceneManagement.ObjectOverride", 
-            "UnityEditor.SceneManagement.PrefabOverride", 
-            "UnityEditor.SceneManagement.AddedGameObject", 
-            "UnityEditor.SceneManagement.AddedComponent", 
-            "UnityEditor.SceneManagement.RemovedComponent", 
+            "UnityEditor.HumanTemplate",
+            "UnityEditor.TakeInfo",
+            "UnityEditor.L10n",
+            "UnityEditor.Build.Reporting",
+            "UnityEditor.TypeCache",
+            "UnityEditor.DragAndDrop",
+            "UnityEditor.SceneManagement.ObjectOverride",
+            "UnityEditor.SceneManagement.PrefabOverride",
+            "UnityEditor.SceneManagement.AddedGameObject",
+            "UnityEditor.SceneManagement.AddedComponent",
+            "UnityEditor.SceneManagement.RemovedComponent",
         });
 
         public List<string> namespaceBlacklist = new List<string>(new string[]
         {
             "TreeEditor",
-            "UnityEditor.U2D", 
-            "UnityEditor.Rendering", 
-            "UnityEditor.AssetImporters", 
-            "UnityEditor.Audio", 
-            "UnityEditor.Build.Player", 
+            "UnityEditor.U2D",
+            "UnityEditor.Rendering",
+            "UnityEditor.AssetImporters",
+            "UnityEditor.Audio",
+            "UnityEditor.Build.Player",
             "Unity.CodeEditor",
             "UnityEditor.Sprites",
             "UnityEditor.Experimental",
@@ -344,7 +373,7 @@ namespace QuickJS.Binding
             "UnityEditor.PackageManager",
             "UnityEditor.PackageManager.UI",
             "UnityEditor.PackageManager.Requests",
-            "SyntaxTree.VisualStudio.Unity.Messaging", 
+            "SyntaxTree.VisualStudio.Unity.Messaging",
         });
 
         public List<string> assemblyBlacklist = new List<string>(new string[]
@@ -382,6 +411,16 @@ namespace QuickJS.Binding
             }
         }
 
+        public ETSModuleStyle GetModuleStyle()
+        {
+            switch(moduleStyle)
+            {
+                case "singular": return ETSModuleStyle.Singular;
+                default: return ETSModuleStyle.Legacy;
+            }
+        }
+
         #endregion
     }
 }
+#endif

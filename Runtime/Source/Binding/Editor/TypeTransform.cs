@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -17,7 +18,7 @@ namespace QuickJS.Binding
     {
         private Type _type;
         private JSHotfixAttribute _hotfix;
-        private string _typeNaming;
+        private string _tsNaming;
         private bool _enableOperatorOverloading = true;
         private bool _disposable;
         private Native.JSCFunctionMagic _csConstructorOverride = null;
@@ -336,14 +337,19 @@ namespace QuickJS.Binding
             }
         }
 
-        public string GetTypeNaming()
+        public string GetTSNaming()
         {
-            return _typeNaming;
+            return _tsNaming;
         }
 
+        /// <summary>
+        /// Override the type name in typescript.
+        /// The type hierarchy from CSharp will be used as the type path in typescript.
+        /// </summary>
         public TypeTransform Rename(string name)
         {
-            _typeNaming = name;
+            CodeGenUtils.Assert(!name.Contains('.') && !name.Contains('+'), "hierarchy overwritting is not allowed");
+            _tsNaming = name;
             return this;
         }
 
@@ -493,3 +499,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -110,6 +111,10 @@ namespace QuickJS.Binding
                     if (parameter.IsOut)
                     {
                         argitem += "out ";
+                    }
+                    else if (parameter.IsIn)
+                    {
+                        argitem += "in ";
                     }
                     else
                     {
@@ -229,13 +234,13 @@ namespace QuickJS.Binding
                     this.cg.tsDeclare.AppendL(": { ");
 
                     var returnTypeTS = this.cg.currentTSModule.GetTSTypeFullName(returnType);
-                    var returnVarName = this.cg.bindingManager.GetTSVariable("return");
+                    var returnVarName = BindingManager.GetTSVariable("return");
                     this.cg.tsDeclare.AppendL($"\"{returnVarName}\": {returnTypeTS}");
 
                     for (var i = 0; i < outParametersCount; i++)
                     {
                         var rp = returnParameters[i];
-                        var name = this.cg.bindingManager.GetTSVariable(rp.Name);
+                        var name = BindingManager.GetTSVariable(rp.Name);
                         var ts = this.cg.currentTSModule.GetTSTypeFullName(rp.ParameterType);
                         if (i != outParametersCount - 1)
                         {
@@ -480,13 +485,13 @@ namespace QuickJS.Binding
                     {
                         var elementType = parameterType.GetElementType();
                         var elementTS = this.cg.currentTSModule.GetTSTypeFullName(elementType);
-                        var parameterVarName = this.cg.bindingManager.GetTSVariable(parameter);
+                        var parameterVarName = BindingManager.GetTSVariable(parameter.Name);
                         this.cg.tsDeclare.AppendL($"{parameter_prefix}...{parameterVarName}: {elementTS}[]");
                     }
                     else
                     {
-                        var parameterTS = this.cg.currentTSModule.GetTSTypeFullName(parameter.ParameterType, parameter.IsOut);
-                        var parameterVarName = this.cg.bindingManager.GetTSVariable(parameter);
+                        var parameterTS = this.cg.currentTSModule.GetTSTypeFullName(parameter);
+                        var parameterVarName = BindingManager.GetTSVariable(parameter.Name);
                         this.cg.tsDeclare.AppendL($"{parameter_prefix}{parameterVarName}: {parameterTS}");
                     }
 
@@ -640,7 +645,7 @@ namespace QuickJS.Binding
             var decalringTypeName = this.cg.bindingManager.GetCSTypeFullName(this.methodBindingInfo.decalringType);
             var castOperation = this.cg.bindingManager.GetNewOperation(this.methodBindingInfo.decalringType);
             this.cg.cs.AppendLine("var o = new {0}();", decalringTypeName);
-            this.cg.cs.AppendLine("var val = {0}(ctx, new_target, o, magic, {1});", castOperation, CodeGenUtils.ToLiteral(this.disposable));
+            this.cg.cs.AppendLine("var val = {0}(ctx, new_target, o, magic, {1});", castOperation, CodeGenUtils.ToExpression(this.disposable));
             this.cg.cs.AppendLine("return val;");
 
             this.cg.tsDeclare.AppendLine($"{this.methodBindingInfo.jsName}()");
@@ -661,7 +666,7 @@ namespace QuickJS.Binding
         protected override void EndInvokeBinding()
         {
             var castOperation = this.cg.bindingManager.GetNewOperation(this.methodBindingInfo.decalringType);
-            this.cg.cs.AppendLine("var val = {0}(ctx, new_target, o, magic, {1});", castOperation, CodeGenUtils.ToLiteral(this.disposable));
+            this.cg.cs.AppendLine("var val = {0}(ctx, new_target, o, magic, {1});", castOperation, CodeGenUtils.ToExpression(this.disposable));
         }
 
         protected override void InvokeVoidReturn()
@@ -885,3 +890,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

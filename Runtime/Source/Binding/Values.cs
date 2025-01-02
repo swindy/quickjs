@@ -9,7 +9,7 @@ namespace QuickJS.Binding
     public partial class Values
     {
         public const string KeyForCSharpTypeID = "__csharp_type_id__";
-        public const string NamespaceOfStaticBinder = "QuickJS";
+        public const string NamespaceOfStaticBinder = "jsb.gen";
         public const string ClassNameOfStaticBinder = "StaticBinder";
         public const string MethodNameOfStaticBinder = "BindAll";
 
@@ -65,7 +65,7 @@ namespace QuickJS.Binding
             {
                 return ctx.ThrowException(new InvalidCastException($"fail to cast type to Array"));
             }
-            
+
             var arr = (Array)o;
             var length = arr.Length;
             var rval = JSApi.JS_NewArray(ctx);
@@ -127,16 +127,12 @@ namespace QuickJS.Binding
 
         protected static bool WriteScriptError(JSContext ctx)
         {
-            var logger = ScriptEngine.GetLogger(ctx);
-            if (logger != null)
-            {
-                logger.Write(Utils.LogLevel.Error, ctx.GetExceptionString());
-            }
+            Diagnostics.Logger.Default.Error(ctx.GetExceptionString());
             return false;
         }
-        
+
         public static bool GetObjectFallthrough<T>(JSContext ctx, JSValue val, out T o)
-        where T: class
+        where T : class
         {
             object o_t;
             if (GetObjectFallthrough(ctx, val, out o_t))

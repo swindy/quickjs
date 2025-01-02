@@ -161,7 +161,7 @@ namespace QuickJS.Unity
             catch (Exception exception)
             {
                 stopWatch.Stop();
-                Debug.LogFormat("Finished executing {0} in {1}ms with error: {2}", name, stopWatch.ElapsedMilliseconds, exception.Message);
+                Debug.LogFormat("Finished executing {0} in {1}ms with error: {2}\nStackTrace: {3}", name, stopWatch.ElapsedMilliseconds, exception.Message, exception.StackTrace);
                 throw;
             }
         }
@@ -174,7 +174,7 @@ namespace QuickJS.Unity
                 {
                     bindingCallback = new ReflectBindingCallback(runtime),
                     utils = new UnityBindingUtils(),
-                    bindingLogger = new DefaultBindingLogger(Utils.LogLevel.Error),
+                    bindingLogger = new DefaultBindingLogger(),
                 });
                 bm.Collect();
                 bm.Generate(TypeBindingFlags.None);
@@ -332,73 +332,21 @@ namespace QuickJS.Unity
             return value;
         }
 
-        public static bool CheckAnyScriptExists()
+        public static void CompileBytecode(IList<string> assetPaths) => CompileBytecode(null, assetPaths);
+
+        /// <summary>
+        /// Compile scripts into bytecode
+        /// </summary>
+        /// <param name="workspace">the container directory of tsconfig.json</param>
+        /// <param name="assetPaths">path list of all scripts, all scripts will be recursively compiled if a given path is directory</param>
+        public static void CompileBytecode(string workspace, IList<string> assetPaths)
         {
-            var objects = Selection.objects;
-            for (var i = 0; i < objects.Length; ++i)
+            // nothing to compile
+            if (assetPaths.Count == 0)
             {
-                var obj = objects[i];
-                var assetPath = AssetDatabase.GetAssetPath(obj);
-                if (CheckAnyScripts(assetPath, 5))
-                {
-                    return true;
-                }
+                return;
             }
-            return false;
-        }
-
-        private static bool CheckAnyScripts(string assetPath, int maxDepth)
-        {
-            if (maxDepth <= 0)
-            {
-                // Debug.LogWarningFormat("max depth limited: {0}", assetPath);
-                return false;
-            }
-
-            if (Directory.Exists(assetPath))
-            {
-                foreach (var subDir in Directory.GetDirectories(assetPath))
-                {
-                    if (CheckAnyScripts(subDir, maxDepth - 1))
-                    {
-                        return true;
-                    }
-                }
-
-                foreach (var subFile in Directory.GetFiles(assetPath))
-                {
-                    if (CheckAnyScripts(subFile, maxDepth))
-                    {
-                        return true;
-                    }
-                }
-            }
-            else
-            {
-                if (!string.IsNullOrEmpty(assetPath) && assetPath.EndsWith(".js"))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        [MenuItem("Assets/JS Bridge/Compile (bytecode)", true)]
-        public static bool CompileBytecodeValidate()
-        {
-            return CheckAnyScriptExists();
-        }
-
-        [MenuItem("Assets/JS Bridge/Compile (bytecode)")]
-        public static void CompileBytecode()
-        {
-            CompileBytecode(null);
-            AssetDatabase.Refresh();
-        }
-
-        // workspace: path of tsconfig.json
-        public static void CompileBytecode(string workspace)
-        {
+            
             var commonJSModule = false;
             var tsconfigPath = string.IsNullOrEmpty(workspace) ? "tsconfig.json" : Path.Combine(workspace, "tsconfig.json");
             if (File.Exists(tsconfigPath))
@@ -419,11 +367,8 @@ namespace QuickJS.Unity
 
             using (var compiler = new UnityJSScriptCompiler())
             {
-                var objects = Selection.objects;
-                for (var i = 0; i < objects.Length; ++i)
+                foreach (var assetPath in assetPaths)
                 {
-                    var obj = objects[i];
-                    var assetPath = AssetDatabase.GetAssetPath(obj);
                     CompileBytecode(compiler, assetPath, commonJSModule);
                 }
             }

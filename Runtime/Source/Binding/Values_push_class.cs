@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace QuickJS.Binding
 {
@@ -52,9 +54,8 @@ namespace QuickJS.Binding
         {
             var context = ScriptEngine.GetContext(ctx);
             var types = context.GetTypeDB();
-
-            var jsVal = types.GetConstructorOf(o);
-            return jsVal;
+            var jsVal = types.GetPrototypeOf(o);
+            return JSApi.JS_DupValue(ctx, jsVal);
         }
 
         public static JSValue js_push_classvalue(JSContext ctx, object o)

@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -36,7 +37,7 @@ namespace QuickJS.Binding
 
             var self_name = "_hotfix_this";
             var nargs = delegateBindingInfo.parameters.Length;
-            var retName = this.cg.bindingManager.GetUniqueName(delegateBindingInfo.parameters, "ret");
+            var retName = CodeGenUtils.GetUniqueName(delegateBindingInfo.parameters, "ret");
             var firstArgument = typeof(ScriptDelegate) + " fn";
             var returnTypeName = this.cg.bindingManager.GetCSTypeFullName(delegateBindingInfo.returnType);
             var delegateName = CodeGenerator.NameOfHotfixDelegates + index;
@@ -142,3 +143,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif

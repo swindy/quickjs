@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -38,6 +39,11 @@ namespace QuickJS.Binding
                 return _backend.AddType(type, proto);
             }
 
+            public void AddTypeBinder(Type type, ClassBind binder)
+            {
+                _backend.AddTypeBinder(type, binder);
+            }
+
             public DynamicType CreateFreeDynamicType(Type type)
             {
                 return _backend.CreateFreeDynamicType(type);
@@ -61,6 +67,11 @@ namespace QuickJS.Binding
             public JSValue FindChainedPrototypeOf(Type cType, out Type pType)
             {
                 return _backend.FindChainedPrototypeOf(cType, out pType);
+            }
+
+            public JSValue FindPrototypeOf(Type type)
+            {
+                return _backend.FindPrototypeOf(type);
             }
 
             public JSValue FindPrototypeOf(Type type, out int type_id)
@@ -158,6 +169,7 @@ namespace QuickJS.Binding
         private ScriptRuntime _runtime;
         private BindingManager _bindingManager;
         private Module.ProxyModuleRegister _moduleReg;
+        private List<Type> _preloadTypes = new List<Type>();
 
         public ReflectBindingCallback(ScriptRuntime runtime)
         {
@@ -195,7 +207,7 @@ namespace QuickJS.Binding
 
             if (!CodeGenUtils.IsCodeEmitSupported())
             {
-                runtime.GetLogger().Write(Utils.LogLevel.Warn, CodeGenUtils.CodeEmitWarning);
+                Diagnostics.Logger.Default.Warning(CodeGenUtils.CodeEmitWarning);
             }
         }
 
@@ -207,6 +219,14 @@ namespace QuickJS.Binding
 
         public void OnBindingEnd()
         {
+            // GeneratePreloadTypes
+            var register = _runtime.GetMainContext().CreateTypeRegister();
+            for (int i = 0, count = _preloadTypes.Count; i < count; ++i)
+            {
+                var type = _preloadTypes[i];
+                register.FindPrototypeOf(type);
+            }
+            register.Finish();
         }
 
         public void BindRawTypes(ICollection<RawTypeBindingInfo> rawTypes)
@@ -243,7 +263,13 @@ namespace QuickJS.Binding
 
         public void AddTypeReference(string moduleName, TypeBindingInfo typeBindingInfo)
         {
-            _runtime.AddTypeReference(_moduleReg, typeBindingInfo.type, register => typeBindingInfo.DoReflectBind(register, _moduleReg), typeBindingInfo.preload, typeBindingInfo.tsTypeNaming.jsFullNameForReflectBind);
+            var moduleRegistrationPathSlice = CodeGenUtils.GetModuleRegistrationPathSlice(typeBindingInfo.tsTypeNaming);
+
+            _runtime.AddTypeReference(_moduleReg, typeBindingInfo.type, register => typeBindingInfo.DoReflectBind(register, _moduleReg), moduleRegistrationPathSlice);
+            if (typeBindingInfo.preload)
+            {
+                _preloadTypes.Add(typeBindingInfo.type);
+            }
         }
 
         public void EndStaticModule(string moduleName)
@@ -256,3 +282,5 @@ namespace QuickJS.Binding
         }
     }
 }
+
+#endif 

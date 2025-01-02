@@ -15,6 +15,7 @@ namespace QuickJS.Utils
         void AddDelegate(Type type, MethodInfo method);
         MethodInfo GetDelegateFunc(Type delegateType);
         int AddType(Type type, JSValue proto);
+        void AddTypeBinder(Type type, ClassBind binder);
         Type GetType(int index);
         int GetTypeID(Type type);
         JSValue FindChainedPrototypeOf(Type cType, out int type_id);
@@ -27,6 +28,7 @@ namespace QuickJS.Utils
         /// NOTE: the returned value is not duplicated. (this behaviour will be changed in the future for better consistency)
         /// </summary>
         JSValue GetPrototypeOf(Type type);
+        JSValue FindPrototypeOf(Type type);
         JSValue FindPrototypeOf(Type type, out int type_id);
 
         /// <summary>
@@ -56,6 +58,8 @@ namespace QuickJS.Utils
         private List<IDynamicMethod> _dynamicMethods = new List<IDynamicMethod>();
         private List<IDynamicField> _dynamicFields = new List<IDynamicField>();
 
+        private Dictionary<Type, ClassBind> _typeBinders = new Dictionary<Type, ClassBind>();
+
         public int Count
         {
             get { return _types.Count; }
@@ -65,6 +69,11 @@ namespace QuickJS.Utils
         {
             _runtime = runtime;
             _context = context;
+        }
+
+        public void AddTypeBinder(Type type, ClassBind binder)
+        {
+            _typeBinders[type] = binder;
         }
 
         /// <summary>
@@ -253,8 +262,13 @@ namespace QuickJS.Utils
                 return true;
             }
 
-            if (_runtime.TryLoadType(_context, type))
+            ClassBind binder;
+            if (_typeBinders.TryGetValue(type, out binder))
             {
+                var typeRegister = _context.CreateTypeRegister();
+                binder(typeRegister);
+                typeRegister.Finish();
+
                 if (_prototypes.TryGetValue(type, out proto))
                 {
                     return true;
@@ -276,6 +290,12 @@ namespace QuickJS.Utils
             return JSApi.JS_UNDEFINED;
         }
 
+        public JSValue FindPrototypeOf(Type type)
+        {
+            int type_id;
+            return FindPrototypeOf(type, out type_id);
+        }
+
         public JSValue FindPrototypeOf(Type type, out int type_id)
         {
             JSValue proto;
@@ -292,6 +312,10 @@ namespace QuickJS.Utils
         public JSValue GetConstructorOf(Type type)
         {
             var proto = GetPrototypeOf(type);
+            if (proto.IsUndefined())
+            {
+                return proto;
+            }
             return JSApi.JS_GetProperty(_context, proto, JSApi.JS_ATOM_constructor);
         }
 
@@ -347,7 +371,7 @@ namespace QuickJS.Utils
             var funValue = JSApi.JSB_NewCFunctionMagic(_context, _DynamicMethodInvoke, name, 0, magic);
             _dynamicMethods.Add(method);
 #if JSB_DEBUG
-            _context.GetLogger()?.Write(LogLevel.Info, "NewDynamicDelegate {0} {1} = {2}", name, d, funValue);
+            Diagnostics.Logger.Default.Debug("NewDynamicDelegate {0} {1} = {2}", name, d, funValue);
 #endif
             return funValue;
         }

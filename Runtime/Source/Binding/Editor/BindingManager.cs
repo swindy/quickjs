@@ -1,4 +1,5 @@
-﻿using System;
+﻿#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
+using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
@@ -32,11 +33,14 @@ namespace QuickJS.Binding
         private List<string> _explicitAssemblies = new List<string>(); // 仅导出指定需要导出的类型
 
         private HashSet<Type> _typeBlacklist;
+        // any member method/field/property/event which references a type in this hashset will not eventually exported
+        private HashSet<Type> _unsupportedRelevantTypes;
+        private HashSet<Type> _unsupportedDelegates;
         private HashSet<string> _namespaceBlacklist;
         private HashSet<string> _typeFullNameBlacklist;
         private HashSet<string> _assemblyBlacklist;  // 禁止导出的 assembly
         private Dictionary<Type, TypeBindingInfo> _exportedTypes = new Dictionary<Type, TypeBindingInfo>();
-        private Dictionary<Type, TSTypeNaming> _tsTypeNamings = new Dictionary<Type, TSTypeNaming>();
+        private Dictionary<Type, ITSTypeNaming> _tsTypeNamings = new Dictionary<Type, ITSTypeNaming>();
         private Dictionary<string, TSModuleBindingInfo> _exportedModules = new Dictionary<string, TSModuleBindingInfo>();
         private List<TypeBindingInfo> _collectedTypes = new List<TypeBindingInfo>(); // 已经完成导出的类型 
         private Dictionary<Type, RawTypeBindingInfo> _collectedRawTypes = new Dictionary<Type, RawTypeBindingInfo>(); // 已经完成导出的类型 
@@ -55,6 +59,7 @@ namespace QuickJS.Binding
         private Dictionary<Type, string> _csTypePusherMap = new Dictionary<Type, string>();
         private Dictionary<string, string> _csTypeNameMapS = new Dictionary<string, string>();
         private static HashSet<string> _tsKeywords = new HashSet<string>();
+        private static HashSet<string> _csKeywords = new HashSet<string>();
 
         private Dictionary<int, List<MethodInfo>> _reflectedDelegateTemplates = new Dictionary<int, List<MethodInfo>>();
 
@@ -82,6 +87,10 @@ namespace QuickJS.Binding
                 "while", "void", "null", "super", "this", "new", "in", "await", "async", "extends", "static",
                 "package", "implements", "interface", "continue", "yield", "const", "export", "finally", "for"
             );
+            AddCSKeywords(
+                "default", "return", "class", "struct", "break", "continue", "var", "if", "else", "for", "nameof",
+                "typeof", "while", "new", "in", "static", "catch", "public", "case"
+            );
         }
 
         public BindingManager(Prefs prefs, Args args)
@@ -100,6 +109,8 @@ namespace QuickJS.Binding
             _typeFullNameBlacklist = new HashSet<string>(prefs.typeFullNameBlacklist);
             _assemblyBlacklist = new HashSet<string>(prefs.assemblyBlacklist);
             _typeBlacklist = new HashSet<Type>();
+            _unsupportedRelevantTypes = new HashSet<Type>();
+            _unsupportedDelegates = new HashSet<Type>();
             _logWriter = args.useLogWriter ? new TextGenerator(newline, tab) : null;
 
             if (prefs.optToString)
@@ -113,6 +124,7 @@ namespace QuickJS.Binding
             TransformType(typeof(string))
                 .AddTSMethodDeclaration("static Equals(a: string | Object, b: string | Object, comparisonType: any): boolean", "Equals", typeof(string), typeof(string), typeof(StringComparison))
                 .AddTSMethodDeclaration("static Equals(a: string | Object, b: string | Object): boolean", "Equals", typeof(string), typeof(string))
+                .SetMemberBlocked("ContainsInvarianCulture")
             ;
 
             // editor 使用的 .net 与 player 所用存在差异, 这里屏蔽不存在的成员
@@ -205,6 +217,9 @@ namespace QuickJS.Binding
             AddTSTypeNameMap(typeof(char), "string");
             AddTSTypeNameMap(typeof(void), "void");
 
+            AddUnsupportedRelevantType(typeof(System.Int32).Assembly.GetType("System.Span`1"));
+            AddUnsupportedRelevantType(typeof(System.Int32).Assembly.GetType("System.ReadOnlySpan`1"));
+
             TransformType(typeof(QuickJS.IO.ByteBuffer))
                 .SetMemberBlocked("_SetPosition")
                 .SetMethodBlocked("ReadAllBytes", typeof(IntPtr))
@@ -231,8 +246,8 @@ namespace QuickJS.Binding
             Initialize();
         }
 
-        public IBindingLogger GetBindingLogger() 
-        { 
+        public IBindingLogger GetBindingLogger()
+        {
             return _bindingLogger;
         }
 
@@ -359,6 +374,7 @@ namespace QuickJS.Binding
 
                             inst.OnInitialize(this);
                             _enabledBindingProcess.Add(inst);
+                            _enabledBindingProcess.Sort((p1, p2) => p1.Priority.CompareTo(p2.Priority));
                             _bindingLogger?.Log($"add binding process: {type}");
                         }
                     }
@@ -378,6 +394,14 @@ namespace QuickJS.Binding
             foreach (var keyword in keywords)
             {
                 _tsKeywords.Add(keyword);
+            }
+        }
+
+        public static void AddCSKeywords(params string[] keywords)
+        {
+            foreach (var keyword in keywords)
+            {
+                _csKeywords.Add(keyword);
             }
         }
 
@@ -419,6 +443,14 @@ namespace QuickJS.Binding
             if (!_hotfixTypes.Contains(type))
             {
                 _hotfixTypes.Add(type);
+            }
+        }
+
+        public void AddUnsupportedRelevantType(Type type)
+        {
+            if (type != null) 
+            {
+                _unsupportedRelevantTypes.Add(type);
             }
         }
 
@@ -523,27 +555,30 @@ namespace QuickJS.Binding
             return type.IsGenericType && !type.IsGenericTypeDefinition;
         }
 
-        public TSModuleBindingInfo GetExportedModule(string name)
+        public TSModuleBindingInfo GetExportedTSModule(string name)
         {
             TSModuleBindingInfo module;
             if (!_exportedModules.TryGetValue(name, out module))
             {
-                module = _exportedModules[name] = new TSModuleBindingInfo(name);
+                module = _exportedModules[name] = new TSModuleBindingInfo();
             }
             return module;
         }
 
         public DelegateBridgeBindingInfo GetDelegateBindingInfo(Type type)
         {
-            Type target;
-            if (_redirectDelegates.TryGetValue(type, out target))
+            if (type != null)
             {
-                type = target;
-            }
-            DelegateBridgeBindingInfo delegateBindingInfo;
-            if (_exportedDelegates.TryGetValue(type, out delegateBindingInfo))
-            {
-                return delegateBindingInfo;
+                Type target;
+                if (_redirectDelegates.TryGetValue(type, out target))
+                {
+                    type = target;
+                }
+                DelegateBridgeBindingInfo delegateBindingInfo;
+                if (_exportedDelegates.TryGetValue(type, out delegateBindingInfo))
+                {
+                    return delegateBindingInfo;
+                }
             }
             return null;
         }
@@ -649,62 +684,168 @@ namespace QuickJS.Binding
             }
         }
 
+        public bool IsSupportedMethod(Type returnType, MethodBase methodBase)
+        {
+            if (methodBase.IsGenericMethod)
+            {
+                return false;
+            }
+
+            // var returnType = methodInfo.ReturnType;
+            var parameters = methodBase.GetParameters();
+
+            if (returnType.IsPointer || returnType.FullName == null || returnType.IsGenericTypeDefinition || _unsupportedRelevantTypes.Contains(returnType))
+            {
+                return false;
+            }
+
+            if (returnType.IsGenericType)
+            {
+                //TODO temporarily skip types like NativeArray<XXX> with _unsupportedRelevantTypes
+                if (_unsupportedRelevantTypes.Contains(returnType.GetGenericTypeDefinition()))
+                {
+                    return false;
+                }
+            }
+
+            for (int i = 0, count = parameters.Length; i < count; ++i)
+            {
+                var parameterType = parameters[i].ParameterType;
+                if (parameterType.IsPointer || parameterType.FullName == null || parameterType.IsGenericTypeDefinition || parameterType.IsGenericParameter || _unsupportedRelevantTypes.Contains(parameterType))
+                {
+                    return false;
+                }
+                if (prefs.skipDelegateWithByRefParams && parameterType.IsByRef)
+                {
+                    return false;
+                }
+                if (parameterType.IsGenericType)
+                {
+                    //TODO temporarily skip types like NativeArray<XXX> with _unsupportedRelevantTypes
+                    if (_unsupportedRelevantTypes.Contains(parameterType.GetGenericTypeDefinition()))
+                    {
+                        return false;
+                    }
+                }
+                if (parameterType.DeclaringType != null)
+                {
+                    //TODO nested type in a generic class (even in a constructed generic type) not supported for now
+                    if (parameterType.DeclaringType.IsGenericType)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        public bool IsSupportedAsDelegate(Type delegateType)
+        {
+            if (_unsupportedDelegates.Contains(delegateType))
+            {
+                return false;
+            }
+
+            var invoke = delegateType.GetMethod("Invoke");
+            var returnType = invoke.ReturnType;
+            var parameters = invoke.GetParameters();
+
+            if (returnType.IsPointer || returnType.IsGenericTypeDefinition || _unsupportedRelevantTypes.Contains(returnType))
+            {
+                _unsupportedDelegates.Add(delegateType);
+                return false;
+            }
+
+            if (returnType.IsGenericType)
+            {
+                //TODO temporarily skip types like NativeArray<XXX> with _unsupportedRelevantTypes
+                if (_unsupportedRelevantTypes.Contains(returnType.GetGenericTypeDefinition()))
+                {
+                    _unsupportedDelegates.Add(delegateType);
+                    return false;
+                }
+            }
+
+            for (int i = 0, count = parameters.Length; i < count; ++i)
+            {
+                var parameterType = parameters[i].ParameterType;
+                if (parameterType.IsPointer || parameterType.IsGenericTypeDefinition || parameterType.IsGenericParameter || _unsupportedRelevantTypes.Contains(parameterType))
+                {
+                    _unsupportedDelegates.Add(delegateType);
+                    return false;
+                }
+                if (prefs.skipDelegateWithByRefParams && parameterType.IsByRef)
+                {
+                    _unsupportedDelegates.Add(delegateType);
+                    return false;
+                }
+                if (parameterType.IsGenericType)
+                {
+                    //TODO temporarily skip types like NativeArray<XXX> with _unsupportedRelevantTypes
+                    if (_unsupportedRelevantTypes.Contains(parameterType.GetGenericTypeDefinition()))
+                    {
+                        _unsupportedDelegates.Add(delegateType);
+                        return false;
+                    }
+                }
+                if (parameterType.DeclaringType != null)
+                {
+                    //TODO nested type in a generic class (even in a constructed generic type) not supported for now
+                    if (parameterType.DeclaringType.IsGenericType)
+                    {
+                        _unsupportedDelegates.Add(delegateType);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
         // 收集所有 delegate 类型
         // delegateType: 委托本身的类型
         // explicitThis: 委托的首个参数作为 显式 this 传递
         public void CollectDelegate(Type delegateType)
         {
-            if (delegateType == null || delegateType.BaseType != typeof(MulticastDelegate))
+            if (delegateType == null || delegateType.BaseType != typeof(MulticastDelegate) || _exportedDelegates.ContainsKey(delegateType))
             {
                 return;
             }
-            if (!_exportedDelegates.ContainsKey(delegateType))
-            {
-                var invoke = delegateType.GetMethod("Invoke");
-                var returnType = invoke.ReturnType;
-                var parameters = invoke.GetParameters();
-                if (ContainsPointer(invoke))
-                {
-                    Info("skip unsafe (pointer) delegate: [{0}] {1}", delegateType, invoke);
-                    return;
-                }
-                if (ContainsGenericParameters(invoke))
-                {
-                    Info("skip generic delegate: [{0}] {1}", delegateType, invoke);
-                    return;
-                }
-                if (prefs.skipDelegateWithByRefParams && ContainsByRefParameters(invoke))
-                {
-                    Info("skip ByRef delegate: [{0}] {1}", delegateType, invoke);
-                    return;
-                }
-                var requiredDefines = new HashSet<string>();
-                CollectTypeRequiredDefines(requiredDefines, delegateType);
-                CollectTypeRequiredDefines(requiredDefines, returnType);
-                CollectTypeRequiredDefines(requiredDefines, parameters);
-                var defs = string.Join(" && ", from def in requiredDefines select def);
 
-                // 是否存在等价 delegate
-                foreach (var kv in _exportedDelegates)
+            if (!IsSupportedAsDelegate(delegateType))
+            {
+                return;
+            }
+
+            var invoke = delegateType.GetMethod("Invoke");
+            var returnType = invoke.ReturnType;
+            var parameters = invoke.GetParameters();
+            var requiredDefines = new HashSet<string>();
+
+            CollectTypeRequiredDefines(requiredDefines, delegateType);
+            CollectTypeRequiredDefines(requiredDefines, returnType);
+            CollectTypeRequiredDefines(requiredDefines, parameters);
+            var defs = string.Join(" && ", from def in requiredDefines select def);
+
+            // 是否存在等价 delegate
+            foreach (var kv in _exportedDelegates)
+            {
+                var regDelegateType = kv.Key;
+                var regDelegateBinding = kv.Value;
+                if (regDelegateBinding.Equals(returnType, parameters, defs))
                 {
-                    var regDelegateType = kv.Key;
-                    var regDelegateBinding = kv.Value;
-                    if (regDelegateBinding.Equals(returnType, parameters, defs))
-                    {
-                        Info("skip delegate: {0} && {1} required defines: {2}", regDelegateBinding, delegateType, defs);
-                        regDelegateBinding.types.Add(delegateType);
-                        _redirectDelegates[delegateType] = regDelegateType;
-                        return;
-                    }
+                    Info("skip delegate: {0} && {1} required defines: {2}", regDelegateBinding, delegateType, defs);
+                    regDelegateBinding.types.Add(delegateType);
+                    _redirectDelegates[delegateType] = regDelegateType;
+                    return;
                 }
-                var delegateBindingInfo = new DelegateBridgeBindingInfo(returnType, parameters, defs);
-                delegateBindingInfo.types.Add(delegateType);
-                _exportedDelegates.Add(delegateType, delegateBindingInfo);
-                Info("add delegate: {0} required defines: {1}", delegateType, defs);
-                for (var i = 0; i < parameters.Length; i++)
-                {
-                    CollectDelegate(parameters[i].ParameterType);
-                }
+            }
+            var delegateBindingInfo = new DelegateBridgeBindingInfo(returnType, parameters, defs);
+            delegateBindingInfo.types.Add(delegateType);
+            _exportedDelegates.Add(delegateType, delegateBindingInfo);
+            Info("add delegate: {0} required defines: {1}", delegateType, defs);
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                CollectDelegate(parameters[i].ParameterType);
             }
         }
 
@@ -862,7 +1003,7 @@ namespace QuickJS.Binding
             {
                 Error(exception);
             }
-            
+
             return null;
         }
 
@@ -1083,40 +1224,14 @@ namespace QuickJS.Binding
             return "Values.js_push_classvalue";
         }
 
-        public string GetTSVariable(string name)
+        public static string GetCSVariable(string name)
         {
-            if (_tsKeywords.Contains(name))
-            {
-                return name + "_";
-            }
-            return name;
+            return _csKeywords.Contains(name) ? "@" + name : name;
         }
 
-        public string GetTSVariable(ParameterInfo parameterInfo)
+        public static string GetTSVariable(string name)
         {
-            var name = parameterInfo.Name;
-            return GetTSVariable(name);
-        }
-
-        // 保证生成一个以 prefix 为前缀, 与参数列表中所有参数名不同的名字
-        public string GetUniqueName(ParameterInfo[] parameters, string prefix)
-        {
-            return GetUniqueName(parameters, prefix, 0);
-        }
-
-        public string GetUniqueName(ParameterInfo[] parameters, string prefix, int index)
-        {
-            var size = parameters.Length;
-            var name = prefix + index;
-            for (var i = 0; i < size; i++)
-            {
-                var parameter = parameters[i];
-                if (parameter.Name == prefix)
-                {
-                    return GetUniqueName(parameters, prefix, index + 1);
-                }
-            }
-            return name;
+            return _tsKeywords.Contains(name) ? name + "_" : name;
         }
 
         /// <summary>
@@ -1289,15 +1404,27 @@ namespace QuickJS.Binding
             return (bStatic ? "BindStatic_" : "Bind_") + csName;
         }
 
-        // 在 TypeTransform 准备完成后才有效
-        public TSTypeNaming GetTSTypeNaming(Type type, bool noBindingRequired = false)
+        public ITSTypeNaming GetTSTypeNaming(Type type, bool noBindingRequired = false)
         {
-            TSTypeNaming value = null;
-            if (type != null && !_tsTypeNamings.TryGetValue(type, out value))
+            ITSTypeNaming value = null;
+            if (!_tsTypeNamings.TryGetValue(type, out value))
             {
                 if (noBindingRequired || GetExportedType(type) != null)
                 {
-                    value = _tsTypeNamings[type] = new TSTypeNaming(this, type, GetTypeTransform(type));
+                    switch (prefs.GetModuleStyle())
+                    {
+                        case ETSModuleStyle.Singular:
+                            value = new SingularTSTypeNaming();
+                            break;
+                        default:
+                            value = new LegacyTSTypeNaming();
+                            break;
+                    }
+                    value.Initialize(this, type);
+                    _tsTypeNamings[type] = value;
+
+                    var tsModule = GetExportedTSModule(value.moduleName);
+                    tsModule.Add(value.moduleEntry);
                 }
             }
 
@@ -1345,6 +1472,10 @@ namespace QuickJS.Binding
             {
                 if (type.IsConstructedGenericType)
                 {
+                    if (_typeBlacklist.Contains(type.GetGenericTypeDefinition()))
+                    {
+                        return true;
+                    }
                     if (IsCompoundedType(type.GetGenericArguments()))
                     {
                         return true;
@@ -1357,6 +1488,11 @@ namespace QuickJS.Binding
             }
 
             if (type.IsDefined(typeof(JSBindingAttribute), false))
+            {
+                return true;
+            }
+
+            if (prefs.excludeObsoleteItems && type.IsDefined(typeof(ObsoleteAttribute), false))
             {
                 return true;
             }
@@ -1376,28 +1512,19 @@ namespace QuickJS.Binding
                 return true;
             }
 
-            //TODO optional support for unsafe types?
+            //TODO support for unsafe types?
             if (type.IsDefined(typeof(System.Runtime.CompilerServices.UnsafeValueTypeAttribute), false))
             {
                 return true;
             }
 
-            var encloser = type;
-            while (encloser != null)
-            {
-                if (encloser.IsDefined(typeof(ObsoleteAttribute), false))
-                {
-                    return true;
-                }
-                encloser = encloser.DeclaringType;
-            }
-
-            if (_namespaceBlacklist.Contains(type.Namespace) || _typeFullNameBlacklist.Contains(type.FullName))
+            var encloser = type.DeclaringType;
+            if (encloser != null && IsExportingBlocked(encloser))
             {
                 return true;
             }
 
-            if (type.IsNested && IsExportingBlocked(type.DeclaringType))
+            if (_namespaceBlacklist.Contains(type.Namespace) || _typeFullNameBlacklist.Contains(type.FullName))
             {
                 return true;
             }
@@ -1877,7 +2004,8 @@ namespace QuickJS.Binding
             AddExportedType(typeof(sbyte)).SystemRuntime();
             AddExportedType(typeof(float)).SystemRuntime();
             AddExportedType(typeof(double)).SystemRuntime();
-            AddExportedType(typeof(string)).SystemRuntime();
+            AddExportedType(typeof(string)).SystemRuntime()
+                .SetMemberBlocked("ContainsInvariantCultureIgnoreCase");
             AddExportedType(typeof(int)).SystemRuntime();
             AddExportedType(typeof(uint)).SystemRuntime();
             AddExportedType(typeof(short)).SystemRuntime();
@@ -2096,8 +2224,7 @@ namespace QuickJS.Binding
 
                         if (_codegenCallback != null)
                         {
-                            var fileName = typeBindingInfo.GetFileName();
-                            _WriteCSharp(cg, csOutDir, fileName);
+                            _WriteCSharp(cg, csOutDir, typeBindingInfo.csBindingName);
                         }
                     }
                 }
@@ -2144,8 +2271,7 @@ namespace QuickJS.Binding
                 {
                     var modules = from t in _collectedTypes
                                   where t.genBindingCode
-                                  orderby t.tsTypeNaming.jsDepth
-                                  group t by t.tsTypeNaming.jsModule;
+                                  group t by t.tsTypeNaming.moduleName;
 
                     // for reflect binding
                     if (_bindingCallback != null)
@@ -2261,3 +2387,4 @@ namespace QuickJS.Binding
         }
     }
 }
+#endif

@@ -1,9 +1,11 @@
 using System;
 using System.Reflection;
-using QuickJS.Native;
 
 namespace QuickJS.Binding
 {
+    using QuickJS.Native;
+    using QuickJS.Errors;
+
     public interface IDynamicMethod
     {
         JSValue Invoke(JSContext ctx, JSValue this_obj, int argc, JSValue[] argv);
@@ -421,7 +423,7 @@ namespace QuickJS.Binding
             var methodInfo = _delegate.Method;
             var parameters = methodInfo.GetParameters();
             var nArgs = Math.Min(argc, parameters.Length);
-            var args = new object[parameters.Length];
+            var args = new object[nArgs];
             for (var i = 0; i < nArgs; i++)
             {
                 if (!Values.js_get_var(ctx, argv[i], parameters[i].ParameterType, out args[i]))

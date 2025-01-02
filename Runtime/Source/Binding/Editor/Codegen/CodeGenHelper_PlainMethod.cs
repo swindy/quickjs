@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -34,10 +35,12 @@ namespace QuickJS.Binding
             var csType = this.cg.bindingManager.GetCSTypeFullName(typeBindingInfo.type);
             var csNamespace = this.cg.bindingManager.prefs.ns;
             var csBindingName = typeBindingInfo.csBindingName;
-            var jsNamespace = CodeGenUtils.Concat(", ", CodeGenUtils.ConcatAsLiteral(", ", typeBindingInfo.tsTypeNaming.jsNamespaceSlice), $"\"{typeBindingInfo.tsTypeNaming.jsNameNormalized}\"");
-            var preload = typeBindingInfo.preload ? "true" : "false";
+            var moduleRegistrationPathSlice = CodeGenUtils.GetModuleRegistrationPathSlice(typeBindingInfo.tsTypeNaming);
+            var jsNamespace = CodeGenUtils.JoinExpression(", ", moduleRegistrationPathSlice);
             
-            AddStatement($"{runtimeVarName}.AddTypeReference({moduleVarName}, typeof({csType}), {csNamespace}.{csBindingName}.Bind, {preload}, {jsNamespace});");
+            AddStatement($"{runtimeVarName}.AddTypeReference({moduleVarName}, typeof({csType}), {csNamespace}.{csBindingName}.Bind, {jsNamespace});");
         }
     }
 }
+
+#endif

@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -10,50 +11,51 @@ namespace QuickJS.Binding
 {
     public class ClassCodeGen : TypeCodeGen
     {
+        private string _tsClassName;
+
         public ClassCodeGen(CodeGenerator cg, TypeBindingInfo typeBindingInfo)
         : base(cg, typeBindingInfo)
         {
             this.cg.AppendJSDoc(this.typeBindingInfo.type);
             var transform = this.typeBindingInfo.transform;
-            var prefix = this.typeBindingInfo.tsTypeNaming.topLevel ? "declare " : "";
             var superBindingInfo = this.cg.bindingManager.GetSuperTypeBindingInfo(this.typeBindingInfo);
             var super = superBindingInfo != null ? this.cg.currentTSModule.GetTSTypeFullName(superBindingInfo.type) : "";
-            var interfaces = this.cg.currentTSModule.GetTSInterfacesName(this.typeBindingInfo.type);
+            var interfaces = this.cg.currentTSModule.GetTSInterfaceNames(this.typeBindingInfo.type);
             var implements = "";
-            var jsClassName = this.typeBindingInfo.tsTypeNaming.jsName;
             var jsClassType = "";
 
+            _tsClassName = CodeGenUtils.GetTSClassName(typeBindingInfo);
             if (typeBindingInfo.type.IsInterface)
             {
                 jsClassType = "interface";
 
-                if (string.IsNullOrEmpty(interfaces))
+                if (interfaces.Length == 0)
                 {
-                    if (!string.IsNullOrEmpty(super))
+                    if (super.Length != 0)
                     {
-                        implements += $" extends {super}"; // something wrong 
+                        implements += $" extends {super}";
                     }
                 }
                 else
                 {
                     implements += $" extends {interfaces}";
 
-                    if (!string.IsNullOrEmpty(super))
+                    if (super.Length != 0)
                     {
-                        implements += $", {super}"; // something wrong 
+                        implements += $", {super}";
                     }
                 }
             }
             else
             {
-                jsClassType = typeBindingInfo.type.IsAbstract ? "abstract class" : "class";
+                jsClassType = typeBindingInfo.isAbstract ? "abstract class" : "class";
 
-                if (!string.IsNullOrEmpty(super))
+                if (super.Length != 0)
                 {
                     implements += $" extends {super}";
                 }
 
-                if (!string.IsNullOrEmpty(interfaces))
+                if (interfaces.Length != 0)
                 {
                     implements += $" implements {interfaces}";
                 }
@@ -73,7 +75,7 @@ namespace QuickJS.Binding
                 }
             }
 
-            this.cg.tsDeclare.AppendLine($"{prefix}{jsClassType} {jsClassName}{implements} {{");
+            this.cg.tsDeclare.AppendLine($"{jsClassType} {_tsClassName}{implements} {{");
             this.cg.tsDeclare.AddTabLevel();
 
             // 生成函数体
@@ -448,7 +450,7 @@ namespace QuickJS.Binding
                 }
 
                 cg.cs.AppendLine("var cls = register.CreateClass(\"{0}\", typeof({1}), {2});",
-                    typeBindingInfo.tsTypeNaming.jsName,
+                    _tsClassName,
                     this.cg.bindingManager.GetCSTypeFullName(typeBindingInfo.type),
                     constructor);
 
@@ -506,8 +508,7 @@ namespace QuickJS.Binding
                     {
                         var attr = (JSCFunctionAttribute)Attribute.GetCustomAttribute(methodBindingInfo._cfunc, typeof(JSCFunctionAttribute));
                         var methodDeclType = this.cg.bindingManager.GetCSTypeFullName(methodBindingInfo._cfunc.DeclaringType);
-                        var isStatic = attr.isStatic ? "true" : "false";
-                        cg.cs.AppendLine("cls.AddRawMethod({0}, \"{1}\", {2}.{3});", isStatic, regName, methodDeclType, methodBindingInfo._cfunc.Name);
+                        cg.cs.AppendLine("cls.AddRawMethod({0}, \"{1}\", {2}.{3});", CodeGenUtils.ToExpression(attr.isStatic), regName, methodDeclType, methodBindingInfo._cfunc.Name);
                         if (attr.difinitions != null)
                         {
                             foreach (var defEntry in attr.difinitions)
@@ -549,7 +550,7 @@ namespace QuickJS.Binding
                     var propertyBindingInfo = kv.Value;
                     if (propertyBindingInfo.staticPair.IsValid())
                     {
-                        var tsPropertyVar = this.cg.bindingManager.GetTSVariable(propertyBindingInfo.regName);
+                        var tsPropertyVar = BindingManager.GetTSVariable(propertyBindingInfo.regName);
                         using (new CSEditorOnlyCodeGen(cg, typeBindingInfo.GetRequiredDefines(propertyBindingInfo.propertyInfo)))
                         {
                             cg.cs.AppendLine("cls.AddProperty(true, \"{0}\", {1}, {2});",
@@ -569,7 +570,7 @@ namespace QuickJS.Binding
 
                     if (propertyBindingInfo.instancePair.IsValid())
                     {
-                        var tsPropertyVar = this.cg.bindingManager.GetTSVariable(propertyBindingInfo.regName);
+                        var tsPropertyVar = BindingManager.GetTSVariable(propertyBindingInfo.regName);
                         using (new CSEditorOnlyCodeGen(cg, typeBindingInfo.GetRequiredDefines(propertyBindingInfo.propertyInfo)))
                         {
                             cg.cs.AppendLine("cls.AddProperty(false, \"{0}\", {1}, {2});",
@@ -592,7 +593,7 @@ namespace QuickJS.Binding
                 {
                     var fieldBindingInfo = kv.Value;
                     var bStatic = fieldBindingInfo.isStatic;
-                    var tsFieldVar = this.cg.bindingManager.GetTSVariable(fieldBindingInfo.regName);
+                    var tsFieldVar = BindingManager.GetTSVariable(fieldBindingInfo.regName);
                     using (new CSEditorOnlyCodeGen(cg, typeBindingInfo.GetRequiredDefines(fieldBindingInfo.fieldInfo)))
                     {
                         if (fieldBindingInfo.constantValue != null)
@@ -603,7 +604,7 @@ namespace QuickJS.Binding
                         else
                         {
                             cg.cs.AppendLine("cls.AddField({0}, \"{1}\", {2}, {3});",
-                                bStatic ? "true" : "false",
+                                CodeGenUtils.ToExpression(bStatic),
                                 tsFieldVar,
                                 fieldBindingInfo.getterName != null ? fieldBindingInfo.getterName : "null",
                                 fieldBindingInfo.setterName != null ? fieldBindingInfo.setterName : "null");
@@ -623,7 +624,7 @@ namespace QuickJS.Binding
                 {
                     var eventBindingInfo = kv.Value;
                     var bStatic = eventBindingInfo.isStatic;
-                    var tsFieldVar = this.cg.bindingManager.GetTSVariable(eventBindingInfo.regName);
+                    var tsFieldVar = BindingManager.GetTSVariable(eventBindingInfo.regName);
                     var tsFieldType = this.cg.currentTSModule.GetTSTypeFullName(eventBindingInfo.eventInfo.EventHandlerType);
                     var tsFieldPrefix = "";
                     if (bStatic)
@@ -642,7 +643,7 @@ namespace QuickJS.Binding
                 {
                     var delegateBindingInfo = kv.Value;
                     var bStatic = delegateBindingInfo.isStatic;
-                    var tsFieldVar = this.cg.bindingManager.GetTSVariable(delegateBindingInfo.regName);
+                    var tsFieldVar = BindingManager.GetTSVariable(delegateBindingInfo.regName);
                     var tsFieldType = this.cg.currentTSModule.GetTSTypeFullName(delegateBindingInfo.delegateType);
                     var tsFieldPrefix = "";
                     if (bStatic)
@@ -684,3 +685,5 @@ namespace QuickJS.Binding
     }
 }
 
+
+#endif

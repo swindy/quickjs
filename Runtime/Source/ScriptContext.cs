@@ -1,13 +1,18 @@
-using System;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using QuickJS.Binding;
-using QuickJS.Native;
-using QuickJS.Utils;
 
 namespace QuickJS
 {
+    using QuickJS.Binding;
+    using QuickJS.Native;
+    using QuickJS.Utils;
+    using QuickJS.Errors;
+
     public partial class ScriptContext
     {
         public event Action<ScriptContext, string> OnScriptReloading;
@@ -65,7 +70,7 @@ namespace QuickJS
             if (withDebugServer && debugServerPort > 0)
             {
                 JSApi.JS_OpenDebugger(_ctx, debugServerPort);
-                runtime.GetLogger()?.Write(LogLevel.Info, string.Format("[EXPERIMENTAL] Debugger is now available with this URL (Windows x64 only): devtools://devtools/bundled/inspector.html?v8only=true&ws=127.0.0.1:{0}/1", debugServerPort));
+                Diagnostics.Logger.Default.Info("[EXPERIMENTAL] Debugger is now available with this URL (Windows x64 only): devtools://devtools/bundled/inspector.html?v8only=true&ws=127.0.0.1:{0}/1", debugServerPort);
             }
             JSApi.JS_SetContextOpaque(_ctx, (IntPtr)_contextId);
             JSApi.JS_AddIntrinsicOperators(_ctx);
@@ -145,8 +150,7 @@ namespace QuickJS
                 var rval = JSApi.JS_Call(_ctx, _operatorCreate);
                 if (rval.IsException())
                 {
-                    var ex = _ctx.GetExceptionString();
-                    GetLogger()?.Write(LogLevel.Error, ex);
+                    Diagnostics.Logger.Default.Error(_ctx.GetExceptionString());
                 }
                 else
                 {
@@ -171,11 +175,6 @@ namespace QuickJS
         public ITimerManager GetTimerManager()
         {
             return _runtime.GetTimerManager();
-        }
-
-        public IScriptLogger GetLogger()
-        {
-            return _runtime.GetLogger();
         }
 
         public ITypeDB GetTypeDB()
@@ -589,7 +588,7 @@ namespace QuickJS
             {
                 return ctx.ThrowException(exception);
             }
-#else
+#else 
             try
             {
                 var context = ScriptEngine.GetContext(ctx);
@@ -620,7 +619,7 @@ namespace QuickJS
             return require_obj;
         }
 
-        // this method will consume the module_obj refcount
+        // this method will consume the module_obj refcount 
         public unsafe JSValue LoadModuleFromSource(byte[] source, string resolved_id, string filename, JSValue module_obj)
         {
             object unused;
@@ -782,7 +781,6 @@ namespace QuickJS
             ns_jsb.AddFunction("ToFunction", to_js_function, 1);
             ns_jsb.AddFunction("ToDelegate", to_cs_delegate, 1);
             ns_jsb.AddFunction("Import", js_import_type, 2);
-            ns_jsb.AddFunction("$LoadType", js_load_type, 2);
             ns_jsb.AddFunction("GC", _gc, 0);
             ns_jsb.AddFunction("SetDisposable", _set_disposable, 2);
             ns_jsb.AddFunction("AddCacheString", _add_cache_string, 1);
@@ -813,12 +811,17 @@ namespace QuickJS
 
                 ns_jsb.AddValue("ModuleManager", ns_ModuleManager.GetConstructor());
             }
-            return ns_jsb;
-        }
+            {
+                var ns_ArrayUtils = register.CreateClass("ArrayUtils");
+                ns_ArrayUtils.AddFunction("GetLength", ArrayLike_GetLength, 1);
+                ns_ArrayUtils.AddFunction("GetValue", ArrayLike_GetValue, 2);
+                ns_ArrayUtils.AddFunction("RemoveAt", ArrayLike_RemoveAt, 2);
+                ns_ArrayUtils.AddFunction("Insert", ArrayLike_Insert, 3);
+                ns_ArrayUtils.AddFunction("SetValue", ArrayLike_SetValue, 3);
 
-        public JSValue _LoadType(string module_id, string topLevelNamespace)
-        {
-            return _runtime._LoadType(this, module_id, topLevelNamespace);
+                ns_jsb.AddValue("ArrayUtils", ns_ArrayUtils.GetConstructor());
+            }
+            return ns_jsb;
         }
 
         public void EvalSource(string source, string fileName)
@@ -872,12 +875,12 @@ namespace QuickJS
                 JSApi.JS_SetProperty(ctx, global_object, GetAtom("print"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("print"), 1, 0));
                 var console = JSApi.JS_NewObject(ctx);
                 {
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("log"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("log"), 1, 0));
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("info"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("info"), 1, 0));
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("debug"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("debug"), 1, 0));
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("warn"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("warn"), 1, 1));
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("error"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("error"), 1, 2));
-                    JSApi.JS_SetProperty(ctx, console, GetAtom("assert"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("assert"), 1, 3));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("log"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("log"), 1, (int)Diagnostics.ELogSeverity.Info));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("info"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("info"), 1, (int)Diagnostics.ELogSeverity.Info));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("debug"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("debug"), 1, (int)Diagnostics.ELogSeverity.Debug));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("warn"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("warn"), 1, (int)Diagnostics.ELogSeverity.Warning));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("error"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("error"), 1, (int)Diagnostics.ELogSeverity.Error));
+                    JSApi.JS_SetProperty(ctx, console, GetAtom("assert"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("assert"), 1, (int)Diagnostics.ELogSeverity.Assert));
                     JSApi.JS_SetProperty(ctx, console, GetAtom("trace"), JSApi.JSB_NewCFunctionMagic(ctx, _print, GetAtom("trace"), 0, -1));
                 }
                 JSApi.JS_SetProperty(ctx, global_object, GetAtom("console"), console);

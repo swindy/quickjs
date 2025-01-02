@@ -35,11 +35,6 @@ namespace QuickJS.Binding
             return _context;
         }
 
-        public IScriptLogger GetLogger()
-        {
-            return _context.GetLogger();
-        }
-
         public JSAtom GetAtom(string name)
         {
             return _atoms.GetAtom(name);
@@ -305,8 +300,12 @@ namespace QuickJS.Binding
 
         public JSValue FindChainedPrototypeOf(Type type)
         {
-            var val = _db.FindChainedPrototypeOf(type);
-            return val;
+            return _db.FindChainedPrototypeOf(type);
+        }
+
+        public JSValue FindPrototypeOf(Type type)
+        {
+            return _db.FindPrototypeOf(type);
         }
 
         public void Finish()

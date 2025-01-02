@@ -322,9 +322,9 @@ namespace QuickJS.Unity
                 EditorGUILayout.TextField("Binding", typeBindingInfo.csBindingName ?? string.Empty);
 
                 var tsTypeNaming = typeBindingInfo.tsTypeNaming;
-                EditorGUILayout.TextField("JS Module", tsTypeNaming.jsModule);
-                EditorGUILayout.TextField("JS Namespace", tsTypeNaming.jsNamespace);
-                EditorGUILayout.TextField("JS Name", tsTypeNaming.jsLocalName);
+                EditorGUILayout.TextField("JS Module", tsTypeNaming.moduleName);
+                EditorGUILayout.TextField("JS Namespace", tsTypeNaming.ns);
+                EditorGUILayout.TextField("JS ClassName", CodeGenUtils.GetTSClassName(typeBindingInfo));
 
                 var requiredDefines = typeBindingInfo.transform.requiredDefines;
                 if (requiredDefines != null && requiredDefines.Count > 0)
@@ -391,6 +391,8 @@ namespace QuickJS.Unity
         private Action[] _tabViewDrawers = new Action[] { };
         private string[] _newlineValues = new string[] { "cr", "lf", "crlf", "" };
         private string[] _newlineNames = new string[] { "UNIX", "MacOS", "Windows", "Auto" };
+        private string[] _moduleStyleValues = new string[] { "legacy", "singular" };
+        private string[] _moduleStyleNames = new string[] { "Legacy (Default)", "Singular (Experimental)" };
         private int _selectedBindingMethod;
         private string[] _bindingMethodValues = new string[] { "Reflect Bind", "Static Bind", "In-Memory Bind" };
         private string[] _bindingMethodDescriptions = new string[] { "Reflect Bind", "Static Bind", "In-Memory Bind (experimental)" };
@@ -649,6 +651,17 @@ namespace QuickJS.Unity
             return _repeatStringCache[repeat];
         }
 
+        private string Popup(string label, string value, string[] names, string[] values)
+        {
+            var newlineIndex = Array.IndexOf(values, value);
+            var newlineIndex_t = EditorGUILayout.Popup(label, newlineIndex, names);
+            if (newlineIndex_t != newlineIndex && newlineIndex_t >= 0)
+            {
+                return values[newlineIndex_t];
+            }
+            return value;
+        }
+
         private void DrawView_TypeCastRegistry()
         {
             //TODO jsb.editor/prefs: draw it as a tree
@@ -699,6 +712,8 @@ namespace QuickJS.Unity
                 {
                     _prefs.optToString = EditorGUILayout.Toggle("Auto ToString", _prefs.optToString);
                     _prefs.enableOperatorOverloading = EditorGUILayout.Toggle("Operator Overloading", _prefs.enableOperatorOverloading);
+                    _prefs.alwaysEmitOperatorMethod = EditorGUILayout.Toggle("Always Emit Operators", _prefs.alwaysEmitOperatorMethod);
+                    _prefs.excludeObsoleteItems = EditorGUILayout.Toggle("Exclude Obsoleted", _prefs.excludeObsoleteItems);
                     _prefs.skipDelegateWithByRefParams = EditorGUILayout.Toggle("Omit ref param Delegates", _prefs.skipDelegateWithByRefParams);
                     _prefs.alwaysCheckArgType = EditorGUILayout.Toggle("Always check arg type", _prefs.alwaysCheckArgType);
                     _prefs.alwaysCheckArgc = EditorGUILayout.Toggle("Always check argc", _prefs.alwaysCheckArgc);
@@ -709,19 +724,21 @@ namespace QuickJS.Unity
                     _prefs.xmlDocDir = EditorGUILayout.TextField("XmlDoc Dir", _prefs.xmlDocDir);
                     _prefs.typescriptDir = EditorGUILayout.TextField("d.ts Output Dir", _prefs.typescriptDir);
                     _prefs.jsModulePackInfoPath = EditorGUILayout.TextField("JS Module List", _prefs.jsModulePackInfoPath);
-                    _prefs.defaultJSModule = EditorGUILayout.TextField("Default Module", _prefs.defaultJSModule);
                 });
 
                 Block("Code Style", () =>
                 {
                     _prefs.tsdSizeThreshold = EditorGUILayout.IntField("TSD Slice Size", _prefs.tsdSizeThreshold);
                     _prefs.tab = RepeatString(" ", EditorGUILayout.IntSlider("Tab Size", _prefs.tab.Length, 0, 8));
-                    var newlineIndex = Array.IndexOf(_newlineValues, _prefs.newLineStyle);
-                    var newlineIndex_t = EditorGUILayout.Popup("Newline Style", newlineIndex, _newlineNames);
-                    if (newlineIndex_t != newlineIndex && newlineIndex_t >= 0)
-                    {
-                        _prefs.newLineStyle = _newlineValues[newlineIndex_t];
-                    }
+                    _prefs.newLineStyle = Popup("Newline Style", _prefs.newLineStyle, _newlineNames, _newlineValues);
+                    _prefs.moduleStyle = Popup("Module Style", _prefs.moduleStyle, _moduleStyleNames, _moduleStyleValues);
+                    var moduleStyle = _prefs.GetModuleStyle();
+                    EditorGUI.BeginDisabledGroup(moduleStyle != ETSModuleStyle.Legacy);
+                    _prefs.defaultJSModule = EditorGUILayout.TextField("Default Module", _prefs.defaultJSModule);
+                    EditorGUI.EndDisabledGroup();
+                    EditorGUI.BeginDisabledGroup(moduleStyle != ETSModuleStyle.Singular);
+                    _prefs.singularModuleName = EditorGUILayout.TextField("Singular Module", _prefs.singularModuleName);
+                    EditorGUI.EndDisabledGroup();
                 });
 
                 Block("Advanced (Experimental)", () =>

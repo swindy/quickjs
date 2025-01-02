@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.Linq;
 using System.Collections.Generic;
@@ -72,7 +73,7 @@ namespace QuickJS.Binding
         protected CodeGenerator cg;
         protected string csNamespace;
 
-        public CSNamespaceCodeGen(CodeGenerator cg, string csNamespace)
+        public CSNamespaceCodeGen(CodeGenerator cg, string csNamespace, params string[] csUsings)
         {
             this.cg = cg;
             this.csNamespace = csNamespace;
@@ -83,9 +84,22 @@ namespace QuickJS.Binding
                 this.cg.cs.AddTabLevel();
             }
 
-            this.cg.cs.AppendLine("using QuickJS;");
-            this.cg.cs.AppendLine("using QuickJS.Binding;");
-            this.cg.cs.AppendLine("using QuickJS.Native;");
+            this.cg.cs.AppendLine("using QuickJS.Errors;");
+            this.cg.cs.AppendLine("using JSValue = QuickJS.Native.JSValue;");
+            this.cg.cs.AppendLine("using JSApi = QuickJS.Native.JSApi;");
+            this.cg.cs.AppendLine("using JSNative = QuickJS.JSNative;");
+            this.cg.cs.AppendLine("using JSContext = QuickJS.Native.JSContext;");
+            this.cg.cs.AppendLine("using Values = QuickJS.Binding.Values;");
+            this.cg.cs.AppendLine("using ScriptEngine = QuickJS.ScriptEngine;");
+            this.cg.cs.AppendLine("using JSBindingAttribute = QuickJS.JSBindingAttribute;");
+            this.cg.cs.AppendLine("using MonoPInvokeCallbackAttribute = QuickJS.MonoPInvokeCallbackAttribute;");
+            foreach (var @using in csUsings)
+            {
+                this.cg.cs.AppendLine("using {0};", @using);
+            }
+            // this.cg.cs.AppendLine("using QuickJS;");
+            // this.cg.cs.AppendLine("using QuickJS.Binding;");
+            // this.cg.cs.AppendLine("using QuickJS.Native;");
         }
 
         public void Dispose()
@@ -132,7 +146,9 @@ namespace QuickJS.Binding
         public RegFuncCodeGen(CodeGenerator cg)
         {
             this.cg = cg;
-            this.cg.cs.AppendLine("public static ClassDecl Bind(TypeRegister register)");
+            this.cg.cs.AppendLine("public static {0} Bind({1} register)", 
+                this.cg.bindingManager.GetCSTypeFullName(typeof(ClassDecl)),
+                this.cg.bindingManager.GetCSTypeFullName(typeof(TypeRegister)));
             this.cg.cs.AppendLine("{");
             this.cg.cs.AddTabLevel();
         }
@@ -151,7 +167,8 @@ namespace QuickJS.Binding
         public RuntimeRegFuncCodeGen(CodeGenerator cg)
         {
             this.cg = cg;
-            this.cg.cs.AppendLine("public static void Bind(ScriptRuntime runtime)");
+            this.cg.cs.AppendLine("public static void Bind({0} runtime)", 
+                this.cg.bindingManager.GetCSTypeFullName(typeof(ScriptRuntime)));
             this.cg.cs.AppendLine("{");
             this.cg.cs.AddTabLevel();
         }
@@ -160,32 +177,6 @@ namespace QuickJS.Binding
         {
             this.cg.cs.DecTabLevel();
             this.cg.cs.AppendLine("}");
-        }
-    }
-
-    /// <summary>
-    /// 不再需要此过程, namespace 在 module register 中进行处理
-    /// </summary>
-    public class RegFuncNamespaceCodeGen : IDisposable
-    {
-        protected CodeGenerator cg;
-
-        public RegFuncNamespaceCodeGen(CodeGenerator cg, TypeBindingInfo typeBindingInfo)
-        {
-            this.cg = cg;
-            this.cg.cs.Append("var ns = register.CreateNamespace(");
-            if (!string.IsNullOrEmpty(typeBindingInfo.tsTypeNaming.jsNamespace))
-            {
-                var split_ns = from i in typeBindingInfo.tsTypeNaming.jsNamespace.Split('.') select $"\"{i}\"";
-                var join_ns = string.Join(", ", split_ns);
-                this.cg.cs.AppendL(join_ns);
-            }
-            this.cg.cs.AppendLineL(");");
-        }
-
-        public virtual void Dispose()
-        {
-            this.cg.cs.AppendLine("ns.Close();");
         }
     }
 
@@ -201,7 +192,7 @@ namespace QuickJS.Binding
             this.cg.cs.AppendLine("// Assembly: {0}", typeBindingInfo.Assembly.GetName());
             this.cg.cs.AppendLine("// Location: {0}", typeBindingInfo.Assembly.Location);
             this.cg.cs.AppendLine("// Type: {0}", typeBindingInfo.FullName);
-            this.cg.cs.AppendLine("[{0}]", typeof(JSBindingAttribute).Name);
+            this.cg.cs.AppendLine("[{0}]", nameof(JSBindingAttribute));
             // this.cg.cs.AppendLine("[UnityEngine.Scripting.Preserve]");
             this.cg.cs.AppendLine("public class {0}", typeBindingInfo.csBindingName);
             this.cg.cs.AppendLine("{");
@@ -355,7 +346,11 @@ namespace QuickJS.Binding
         private string GetVarName(Type type)
         {
             var name = type.Name;
-            return name[0].ToString().ToLower() + name.Substring(1);
+            if (char.IsLower(name[0]))
+            {
+                return name + "_";
+            }
+            return char.ToLower(name[0]) + name.Substring(1);
         }
 
         private void AddCatchClause(Type exceptionType)
@@ -365,7 +360,7 @@ namespace QuickJS.Binding
             this.cg.cs.AppendLine("{");
             this.cg.cs.AddTabLevel();
             {
-                this.cg.cs.AppendLine("return ctx.ThrowException({0});", varName);
+                this.cg.cs.AppendLine("return JSNative.ThrowException(ctx, {0});", varName);
             }
             this.cg.cs.DecTabLevel();
             this.cg.cs.AppendLine("}");
@@ -375,8 +370,6 @@ namespace QuickJS.Binding
         {
             this.cg.cs.DecTabLevel();
             this.cg.cs.AppendLine("}");
-            // this.AddCatchClause(typeof(NullReferenceException), "duk_reference_error");
-            // this.AddCatchClause(typeof(IndexOutOfRangeException), "duk_range_error");
             this.AddCatchClause(typeof(Exception));
         }
     }
@@ -412,6 +405,28 @@ namespace QuickJS.Binding
             {
                 cg.cs.AppendLineL("#endif");
             }
+        }
+    }
+
+    public class CSTypeRegisterScopeCodeGen : IDisposable
+    {
+        protected CodeGenerator cg;
+        protected string name;
+
+        public CSTypeRegisterScopeCodeGen(CodeGenerator cg, string name, string contextName)
+        {
+            this.cg = cg;
+            this.name = name;
+            this.cg.cs.AppendLine("{");
+            this.cg.cs.AddTabLevel();
+            this.cg.cs.AppendLine("var {0} = {1}.CreateTypeRegister();", name, contextName);
+        }
+
+        public void Dispose()
+        {
+            this.cg.cs.AppendLine("{0}.Finish();", name);
+            this.cg.cs.DecTabLevel();
+            this.cg.cs.AppendLine("}");
         }
     }
 
@@ -475,3 +490,4 @@ namespace QuickJS.Binding
         }
     }
 }
+#endif

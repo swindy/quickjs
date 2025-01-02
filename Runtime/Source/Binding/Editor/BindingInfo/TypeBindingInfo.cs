@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || JSB_RUNTIME_REFLECT_BINDING
 using System;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,8 @@ namespace QuickJS.Binding
         public bool preload => operators.Count != 0;
 
         public TypeBindingFlags bindingFlags => transform.bindingFlags;
+
+        public bool isAbstract => type.IsAbstract;
 
         /// <summary>
         /// 是否可以在脚本中继承此类型
@@ -81,8 +84,12 @@ namespace QuickJS.Binding
         public Dictionary<string, DelegateBindingInfo> delegates = new Dictionary<string, DelegateBindingInfo>();
         public ConstructorBindingInfo constructors;
 
-        private TSTypeNaming _tsTypeNaming;
-        public TSTypeNaming tsTypeNaming => _tsTypeNaming;
+        private ITSTypeNaming _tsTypeNaming;
+
+        /// <summary>
+        /// names for the typescript codegen
+        /// </summary>
+        public ITSTypeNaming tsTypeNaming => _tsTypeNaming;
 
         private bool _omit;
 
@@ -97,19 +104,8 @@ namespace QuickJS.Binding
         public void Initialize()
         {
             _tsTypeNaming = bindingManager.GetTSTypeNaming(type, true);
-            _csBindingName = bindingManager.prefs.typeBindingPrefix
-                + _tsTypeNaming.jsFullName
-                    .Replace('.', '_')
-                    .Replace('+', '_')
-                    .Replace('<', '_')
-                    .Replace('>', '_')
-                    .Replace(' ', '_')
-                    .Replace(',', '_')
-                    .Replace('=', '_');
-
-            var module = this.bindingManager.GetExportedModule(_tsTypeNaming.jsModule);
-
-            module.Add(this);
+            _csBindingName = bindingManager.prefs.typeBindingPrefix + CodeGenUtils.GetFileName(type);
+            CodeGenUtils.Assert(CodeGenUtils.IsValidTypeDeclarationName(_csBindingName), "invalid binding name");
         }
 
         public HashSet<string> GetRequiredDefines(MemberInfo memberInfo)
@@ -128,26 +124,6 @@ namespace QuickJS.Binding
                 return setForMember;
             }
             return null;
-        }
-
-        // 将类型名转换成简单字符串 (比如用于文件名)
-        public string GetFileName()
-        {
-            if (type.IsGenericType)
-            {
-                var selfname = string.IsNullOrEmpty(type.Namespace) ? "" : (type.Namespace + "_");
-                var gpIndex = type.Name.IndexOf('`');
-                selfname += gpIndex >= 0 ? type.Name.Substring(0, gpIndex) : type.Name;
-                foreach (var gp in type.GetGenericArguments())
-                {
-                    selfname += "_" + gp.Name;
-                }
-
-                return selfname.Replace(".", "_").Replace("<", "_").Replace(">", "_").Replace("`", "_");
-            }
-
-            var filename = type.FullName.Replace(".", "_").Replace("<", "_").Replace(">", "_").Replace("`", "_");
-            return filename;
         }
 
         public void AddEvent(EventInfo eventInfo)
@@ -395,12 +371,6 @@ namespace QuickJS.Binding
 
         public void AddConstructor(ConstructorInfo constructorInfo)
         {
-            if (this.transform.IsBlocked(constructorInfo))
-            {
-                bindingManager.Info("skip blocked constructor: {0}", constructorInfo.Name);
-                return;
-            }
-
             if (!constructors.Add(constructorInfo, false))
             {
                 bindingManager.Info("add constructor failed: {0}", constructorInfo.Name);
@@ -428,7 +398,7 @@ namespace QuickJS.Binding
                 if (field.IsStatic && type.IsGenericTypeDefinition)
                 {
                     bindingManager.Info("skip static field in generic type definition: {0}", field.Name);
-                    return;
+                    continue;
                 }
 
                 if (field.FieldType.IsPointer)
@@ -443,7 +413,7 @@ namespace QuickJS.Binding
                     continue;
                 }
 
-                if (field.IsDefined(typeof(ObsoleteAttribute), false))
+                if (bindingManager.prefs.excludeObsoleteItems && field.IsDefined(typeof(ObsoleteAttribute), false))
                 {
                     bindingManager.Info("skip obsolete field: {0}", field.Name);
                     continue;
@@ -467,6 +437,15 @@ namespace QuickJS.Binding
                     continue;
                 }
 
+                if (field.FieldType.BaseType == typeof(MulticastDelegate))
+                {
+                    if (!bindingManager.IsSupportedAsDelegate(field.FieldType))
+                    {
+                        bindingManager.Info("skip unsupported delegate field: {0}", field.Name);
+                        continue;
+                    }
+                }
+
                 AddField(field);
             }
 
@@ -479,19 +458,19 @@ namespace QuickJS.Binding
                     continue;
                 }
 
-                if ((evt.GetAddMethod(true)?.IsStatic == true || evt.GetRemoveMethod(true)?.IsStatic == true) && type.IsGenericTypeDefinition)
-                {
-                    bindingManager.Info("skip static event in generic type definition: {0}", evt.Name);
-                    return;
-                }
-
                 if (evt.EventHandlerType.IsPointer)
                 {
                     bindingManager.Info("skip pointer event: {0}", evt.Name);
                     continue;
                 }
 
-                if (evt.IsDefined(typeof(ObsoleteAttribute), false))
+                if ((evt.GetAddMethod(true)?.IsStatic == true || evt.GetRemoveMethod(true)?.IsStatic == true) && type.IsGenericTypeDefinition)
+                {
+                    bindingManager.Info("skip static event in generic type definition: {0}", evt.Name);
+                    continue;
+                }
+
+                if (bindingManager.prefs.excludeObsoleteItems && evt.IsDefined(typeof(ObsoleteAttribute), false))
                 {
                     bindingManager.Info("skip obsolete event: {0}", evt.Name);
                     continue;
@@ -512,6 +491,12 @@ namespace QuickJS.Binding
                 if (transform.Filter(evt))
                 {
                     bindingManager.Info("skip filtered event: {0}", evt.Name);
+                    continue;
+                }
+
+                if (!bindingManager.IsSupportedAsDelegate(evt.EventHandlerType))
+                {
+                    bindingManager.Info("skip unsupported delegate event: {0}", evt.Name);
                     continue;
                 }
 
@@ -539,7 +524,7 @@ namespace QuickJS.Binding
                 if ((propInfoGetMethod?.IsStatic == true || propInfoSetMethod?.IsStatic == true) && type.IsGenericTypeDefinition)
                 {
                     bindingManager.Info("skip static property in generic type definition: {0}", property.Name);
-                    return;
+                    continue;
                 }
 
                 if (property.IsDefined(typeof(JSOmitAttribute), false))
@@ -548,7 +533,7 @@ namespace QuickJS.Binding
                     continue;
                 }
 
-                if (property.IsDefined(typeof(ObsoleteAttribute), false))
+                if (bindingManager.prefs.excludeObsoleteItems && property.IsDefined(typeof(ObsoleteAttribute), false))
                 {
                     bindingManager.Info("skip obsolete property: {0}", property.Name);
                     continue;
@@ -566,7 +551,16 @@ namespace QuickJS.Binding
                     continue;
                 }
 
-                //NOTE: 索引访问
+                if (property.PropertyType.BaseType == typeof(MulticastDelegate))
+                {
+                    if (!bindingManager.IsSupportedAsDelegate(property.PropertyType))
+                    {
+                        bindingManager.Info("skip unsupported delegate property: {0}", property.Name);
+                        continue;
+                    }
+                }
+
+                //NOTE: special name for Indexer
                 if (property.Name == "Item")
                 {
                     if (property.CanRead && propInfoGetMethod != null && propInfoGetMethod.IsPublic)
@@ -609,7 +603,7 @@ namespace QuickJS.Binding
                         continue;
                     }
 
-                    if (constructor.IsDefined(typeof(ObsoleteAttribute), false))
+                    if (bindingManager.prefs.excludeObsoleteItems && constructor.IsDefined(typeof(ObsoleteAttribute), false))
                     {
                         bindingManager.Info("skip obsolete constructor: {0}", constructor);
                         continue;
@@ -633,6 +627,18 @@ namespace QuickJS.Binding
                         continue;
                     }
 
+                    if (transform.IsBlocked(constructor))
+                    {
+                        bindingManager.Info("skip blocked constructor: {0}", constructor.Name);
+                        continue;
+                    }
+
+                    if (!bindingManager.IsSupportedMethod(typeof(void), constructor))
+                    {
+                        bindingManager.Info("skip unsupported constructor: {0}", constructor.Name);
+                        continue;
+                    }
+
                     AddConstructor(constructor);
                 }
             }
@@ -644,12 +650,14 @@ namespace QuickJS.Binding
 
         private void CollectMethods(IEnumerable<Native.JSCFunction> funcs, bool asExtensionAnyway)
         {
-            if (funcs != null)
+            if (funcs == null)
             {
-                foreach (var func in funcs)
-                {
-                    AddMethod(func);
-                }
+                return;
+            }
+
+            foreach (var func in funcs)
+            {
+                AddMethod(func);
             }
         }
 
@@ -659,21 +667,9 @@ namespace QuickJS.Binding
             {
                 return;
             }
-            
+
             foreach (var method in methods)
             {
-                if (BindingManager.IsGenericMethod(method))
-                {
-                    bindingManager.Info("skip generic method: {0}", method);
-                    continue;
-                }
-
-                if (BindingManager.ContainsUnsupportedParameter(method))
-                {
-                    bindingManager.Info("skip unsupported (pointer/invalid parameter type) method: {0}", method);
-                    continue;
-                }
-
                 if (method.IsSpecialName)
                 {
                     if (!IsSupportedOperators(method))
@@ -689,7 +685,7 @@ namespace QuickJS.Binding
                     continue;
                 }
 
-                if (method.IsDefined(typeof(ObsoleteAttribute), false))
+                if (bindingManager.prefs.excludeObsoleteItems && method.IsDefined(typeof(ObsoleteAttribute), false))
                 {
                     bindingManager.Info("skip obsolete method: {0}", method);
                     continue;
@@ -704,6 +700,12 @@ namespace QuickJS.Binding
                 if (transform.Filter(method))
                 {
                     bindingManager.Info("skip filtered method: {0}", method.Name);
+                    continue;
+                }
+
+                if (!bindingManager.IsSupportedMethod(method.ReturnType, method))
+                {
+                    bindingManager.Info("skip unsupported method: {0}", method.Name);
                     continue;
                 }
 
@@ -850,7 +852,7 @@ namespace QuickJS.Binding
             {
                 var propertyBindingInfo = pair.Value;
                 var isStatic = propertyBindingInfo.isStatic;
-                var tsPropertyVar = this.bindingManager.GetTSVariable(propertyBindingInfo.regName);
+                var tsPropertyVar = BindingManager.GetTSVariable(propertyBindingInfo.regName);
                 var dynamicProperty = new Binding.DynamicProperty(dynamicType, propertyBindingInfo.propertyInfo);
 
                 cls.AddField(isStatic, propertyBindingInfo.regName, dynamicProperty);
@@ -860,7 +862,7 @@ namespace QuickJS.Binding
             {
                 var fieldBindingInfo = pair.Value;
                 var isStatic = fieldBindingInfo.isStatic;
-                var tsPropertyVar = this.bindingManager.GetTSVariable(fieldBindingInfo.regName);
+                var tsPropertyVar = BindingManager.GetTSVariable(fieldBindingInfo.regName);
                 var dynamicField = new Binding.DynamicField(dynamicType, fieldBindingInfo.fieldInfo);
 
                 cls.AddField(isStatic, fieldBindingInfo.regName, dynamicField);
@@ -870,7 +872,7 @@ namespace QuickJS.Binding
             foreach (var pair in events)
             {
                 var eventBindingInfo = pair.Value;
-                var tsDelegateVar = this.bindingManager.GetTSVariable(eventBindingInfo.regName);
+                var tsDelegateVar = BindingManager.GetTSVariable(eventBindingInfo.regName);
                 var dynamicMethod = new Binding.DynamicEventDelegateOp(dynamicType, eventBindingInfo.eventInfo, tsDelegateVar);
 
                 cls.AddMethod(eventBindingInfo.isStatic, tsDelegateVar, dynamicMethod);
@@ -880,7 +882,7 @@ namespace QuickJS.Binding
             foreach (var pair in delegates)
             {
                 var delegateBindingInfo = pair.Value;
-                var tsDelegateVar = this.bindingManager.GetTSVariable(delegateBindingInfo.regName);
+                var tsDelegateVar = BindingManager.GetTSVariable(delegateBindingInfo.regName);
                 Binding.IDynamicMethod dynamicMethod = null;
 
                 if (delegateBindingInfo.isField)
@@ -938,3 +940,4 @@ namespace QuickJS.Binding
         }
     }
 }
+#endif

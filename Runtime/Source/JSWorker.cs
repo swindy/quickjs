@@ -8,6 +8,7 @@ namespace QuickJS
     using QuickJS.Utils;
     using QuickJS.Native;
     using QuickJS.Binding;
+    using QuickJS.Errors;
 
     public class JSWorker : Values, IDisposable, IObjectCollectionEntry
     {
@@ -35,11 +36,7 @@ namespace QuickJS
         {
             if (_inbox.Count != 0)
             {
-#if JSB_UNITYLESS
-                Console.WriteLine("worker: not cleaned up");
-#else
-                UnityEngine.Debug.LogError("worker: not cleaned up");
-#endif
+                Diagnostics.Logger.Default.Error("worker: not cleaned up");
             }
         }
 #endif
@@ -94,11 +91,9 @@ namespace QuickJS
             _self = JSApi.JS_DupValue(ctx, value);
             _parentRuntime = parent;
             _parentRuntime.AddManagedObject(this, out _handle);
-
             _runtime = runtime;
             RegisterGlobalObjects();
             _runtime.EvalMain(scriptPath);
-
             _thread = new Thread(new ThreadStart(Run));
             _thread.Priority = ThreadPriority.Lowest;
             _thread.IsBackground = true;
@@ -127,7 +122,6 @@ namespace QuickJS
             var tick = Environment.TickCount;
             var list = new List<IO.ByteBuffer>();
             var context = _runtime.GetMainContext();
-            var logger = _runtime.GetLogger();
 
             while (_runtime.isRunning)
             {
@@ -183,10 +177,7 @@ namespace QuickJS
                                     }
 
                                     var exceptionString = ctx.GetExceptionString();
-                                    if (logger != null)
-                                    {
-                                        logger.Write(LogLevel.Error, exceptionString);
-                                    }
+                                    Diagnostics.Logger.Default.Error(exceptionString);
                                 } while (false);
                             }
                         }
@@ -231,11 +222,7 @@ namespace QuickJS
                     if (onmessage.IsException())
                     {
                         var exceptionString = ctx.GetExceptionString();
-                        var logger = runtime.GetLogger();
-                        if (logger != null)
-                        {
-                            logger.Write(LogLevel.Error, exceptionString);
-                        }
+                        Diagnostics.Logger.Default.Error(exceptionString);
                     }
                     else
                     {
@@ -269,11 +256,7 @@ namespace QuickJS
                                 }
 
                                 var exceptionString = ctx.GetExceptionString();
-                                var logger = runtime.GetLogger();
-                                if (logger != null)
-                                {
-                                    logger.Write(LogLevel.Error, exceptionString);
-                                }
+                                Diagnostics.Logger.Default.Error(exceptionString);
                             } while (false);
                         }
                         else
