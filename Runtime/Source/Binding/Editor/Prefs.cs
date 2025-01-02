@@ -303,6 +303,7 @@ namespace QuickJS.Binding
 
         public List<string> namespaceBlacklist = new List<string>(new string[]
         {
+            "NiceIO",
             "TreeEditor",
             "UnityEditor.U2D",
             "UnityEditor.Rendering",
