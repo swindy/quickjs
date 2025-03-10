@@ -84,7 +84,15 @@ namespace QuickJS
 
         private void OnInitialized(ScriptRuntime obj)
         {
-            _rt.EvalMain(EntryFileName);
+            try
+            {
+                _rt.EvalMain(EntryFileName);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError(e);
+            }
+  
         }
 
         void Update()
