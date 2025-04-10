@@ -13,7 +13,7 @@ namespace QuickJS
                     return new QuickJsEngineFactory();
                 
                 case JavascriptEngineType.ClearScript:
-                    // return new ClearScriptEngineFactory();
+                    return new ClearScriptEngineFactory();
 
                 default:
                     throw new System.Exception("Could not find a valid scripting engine. ");

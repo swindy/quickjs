@@ -7,7 +7,7 @@ namespace QuickJS
     public class EngineContext
     {
         
-        public class Options
+        public class EngineOptions
         {
             public GlobalRecord Globals;
             public ScriptSource Source;
@@ -16,6 +16,8 @@ namespace QuickJS
             public JavascriptEngineType EngineType;
             public bool Debug;
             public bool AwaitDebugger;
+            public bool StackTrace;
+            public bool UseReflectBind;
             public Action BeforeStart;
             public Action AfterStart;
             // public PoolingType Pooling;
@@ -40,7 +42,7 @@ namespace QuickJS
         
         public virtual bool IsEditorContext => false;
         
-        public Options options { get; }
+        public EngineOptions Options { get; }
         
         public readonly JavascriptEngineType EngineType;
         
@@ -62,13 +64,12 @@ namespace QuickJS
         
         public Callback FireEventByRefCallback;
         
-        public EngineContext(Options options)
+        public EngineContext(EngineOptions engineOptions)
         {
-            this.options = options;
-            // Timer = options.Timer;
+            this.Options = engineOptions;
             LocalStorage = new LocalStorage();
             
-            Source = options.Source;
+            Source = engineOptions.Source;
             // Timer = options.Timer;
             // Dispatcher = CreateDispatcher();
             // Globals = options.Globals;
@@ -82,7 +83,7 @@ namespace QuickJS
             // Dispatcher.OnEveryUpdate(UpdateElementsRecursively);
             // Dispatcher.OnEveryLateUpdate(LateUpdateElementsRecursively);
             
-            EngineFactory = JavascriptEngineHelpers.GetEngineFactory(options.EngineType);
+            EngineFactory = JavascriptEngineHelpers.GetEngineFactory(engineOptions.EngineType);
 
 #if UNITY_EDITOR
             // Runtime contexts are disposed on reload (by OnDisable), but this is required for editor contexts
@@ -106,24 +107,23 @@ namespace QuickJS
                 CreateBaseEngine(Debug, AwaitDebugger, () => {
                     engine.SetGlobal("Context", this);
                     engine.SetGlobal("localStorage", LocalStorage);
-
-                    // CreateDOMShims(engine);
-                    // CreateConsole(engine);
-                    // CreateScheduler(engine, Context);
-                    // CreatePolyfills(engine);
                     
                     EngineInitialized = true;
-
                     callback?.Invoke();
                 });
             }
             else callback?.Invoke();
         }
+
+        public void Update()
+        {
+            Engine?.Update();
+        }
         
         public void Dispose()
         {
             // CommandsCallback = null;
-            // FireEventByRefCallback = null;
+            FireEventByRefCallback = null;
             // GetObjectCallback = null;
             // GetEventAsObjectCallback = null;
             //
@@ -136,7 +136,7 @@ namespace QuickJS
             // Dispatcher?.Dispose();
             // Globals?.Dispose();
             // foreach (var item in Disposables) item?.Invoke();
-            // Script?.Dispose();
+            Engine?.Dispose();
         }
         
         void CreateBaseEngine(bool debug, bool awaitDebugger, Action onInitialize)
@@ -147,59 +147,6 @@ namespace QuickJS
                 onInitialize?.Invoke();
             });
         }
-        
-        void CreateDOMShims(IJavaScriptEngine engine)
-        {
-          
-            if (!engine.Capabilities.HasFlag(EngineCapabilities.URL))
-            {
-                engine.SetGlobal("URL", typeof(URL));
-                engine.SetGlobal("URLSearchParams", typeof(URLSearchParams));
-            }
-            
-            if (!engine.Capabilities.HasFlag(EngineCapabilities.Encoding))
-            {
-                engine.SetGlobal("EncodingHelpers", typeof(EncodingHelpers));
-                engine.Execute(@"
-                    global.encodeURI          = function(x) {   return EncodingHelpers.encodeURI(x + '')            };
-                    global.decodeURI          = function(x) {   return EncodingHelpers.decodeURI(x + '')            };
-                    global.encodeURIComponent = function(x) {   return EncodingHelpers.encodeURIComponent(x + '')   };
-                    global.decodeURIComponent = function(x) {   return EncodingHelpers.decodeURIComponent(x + '')   };
-                ", "QuickJS/shims/encoding");
-            }
-
-        }
-        
-        void CreateConsole(IJavaScriptEngine engine)
-        {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            engine.Execute("global.console = global.$$webglWindow.console; void 0;", "ReactUnity/shims/console");
-#else
-            if (engine.Capabilities.HasFlag(EngineCapabilities.Console)) return;
-
-            var console = new ConsoleProxy(this);
-
-            engine.SetGlobal("__console", console);
-            engine.Execute(@"(function() {
-                var _console = global.__console;
-                global.console = {
-                    log:       function log       ()    { _console.log   (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    info:      function info      ()    { _console.info  (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    debug:     function debug     ()    { _console.debug (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    trace:     function trace     ()    { _console.debug (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    warn:      function warn      ()    { _console.warn  (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    error:     function error     ()    { _console.error (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    dir:       function dir       ()    { _console.dir   (arguments[0], Array.prototype.slice.call(arguments, 1)) },
-                    clear:     function clear     (arg) { _console.clear(arg)         },
-                    assert:    function assert    (arg) { _console.assert(arg)        },
-                    count:     function count    (name) { return _console.count(name) },
-                };
-                void 0;
-})()", "QuickJS/shims/console");
-            engine.DeleteGlobal("__console");
-#endif
-        }
-        
         
         public Callback CreateEventCallback(string code, object thisVal)
         {

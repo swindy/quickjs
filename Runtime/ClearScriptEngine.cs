@@ -333,4 +333,16 @@ namespace QuickJS
             }
         }
     }
+    
+    public class ClearScriptEngineFactory : IJavaScriptEngineFactory
+    {
+        public JavascriptEngineType EngineType => JavascriptEngineType.ClearScript;
+
+        public IJavaScriptEngine Create(EngineContext context, bool debug, bool awaitDebugger, Action<IJavaScriptEngine> onInitialize)
+        {
+            var res = new ClearScriptEngine(context, debug, awaitDebugger);
+            onInitialize?.Invoke(res);
+            return res;
+        }
+    }
 }

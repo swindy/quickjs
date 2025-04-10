@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using QuickJS.Binding;
+using QuickJS.IO;
 using QuickJS.Native;
 using QuickJS.Utils;
 using UnityEditor.PackageManager;
@@ -49,6 +50,8 @@ namespace QuickJS
             
 
             Runtime = ScriptEngine.CreateRuntime(context?.IsEditorContext ?? false);
+            Runtime.withStacktrace = Context.Options.StackTrace;
+            
             Runtime.AddModuleResolvers();
             Runtime.OnInitialized += Runtime_OnInitialized;
             Runtime.Initialize(new ScriptRuntimeArgs
@@ -57,9 +60,9 @@ namespace QuickJS
                 waitingForDebugger = awaitDebugger,
                 fileSystem = new DefaultFileSystem(),
                 asyncManager = new DefaultAsyncManager(),
-                binder = DefaultBinder.GetBinder(true),
+                binder = DefaultBinder.GetBinder(Context.Options.UseReflectBind),
                 debugServerPort = 9222,
-                byteBufferAllocator = new QuickJS.IO.ByteBufferPooledAllocator(),
+                byteBufferAllocator = new ByteBufferPooledAllocator(),
                 pathResolver = new PathResolver(),
                 // apiBridge = ApiBridge,
             });
