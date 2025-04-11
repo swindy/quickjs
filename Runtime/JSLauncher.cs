@@ -9,13 +9,6 @@ namespace QuickJS
 {
     public class JSLauncher : MonoBehaviour
     {
-        public enum FileLoader
-        {
-            Default,
-            Resources,
-            Http,
-        }
-        
         public enum DebugMode
         {
             None = 0,
@@ -23,13 +16,13 @@ namespace QuickJS
             DebugAndAwait = 2,
         }
         
-        public FileLoader fileLoader;
+        public string BaseUrl = "http://127.0.0.1:3000";
         
-        public string BaseUrl = "http://127.0.0.1:8183";
+        public string SourceFile = "index.js";
         
-        public string EntryFileName = "example_main.js";
-        
-        public ScriptSource Source = new ScriptSource() { Type = ScriptSource.ScriptSourceType.Resource, SourcePath = "index", Watch = true };
+        public ScriptSource.ScriptSourceType SourceType = ScriptSource.ScriptSourceType.Resource;
+
+        public ScriptSource.DevServerType DevServer = ScriptSource.DevServerType.InEditor;
         
         public JavascriptEngineType EngineType = JavascriptEngineType.QuickJS;
         
@@ -47,15 +40,28 @@ namespace QuickJS
             
         }
 
+        private void OnEnable()
+        {
+            Startup();
+        }
+
         public void Startup()
         {
-            LoadAndRun(Source);
+            LoadAndRun();
         }
         
-        private void LoadAndRun(ScriptSource script, Action afterStart = null)
+        private void LoadAndRun(Action afterStart = null)
         {
+            var script = new ScriptSource()
+            {
+                SourceType = SourceType, 
+                SourceFile = SourceFile, 
+                DevServer = BaseUrl, 
+                UseDevServer = DevServer, 
+                Watch = true
+            };
             Context = CreateContext(script);
-            // Context.Start(afterStart);
+            Context.RunMainScript(script);
         }
         
         protected EngineContext CreateContext(ScriptSource script)
@@ -67,6 +73,8 @@ namespace QuickJS
                 EngineType = EngineType,
                 Debug = Debug != DebugMode.None,
                 AwaitDebugger = Debug == DebugMode.DebugAndAwait,
+                StackTrace = StackTrace,
+                UseReflectBind = useReflectBind,
             });
         }
         

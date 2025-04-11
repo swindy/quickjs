@@ -60,38 +60,25 @@ namespace QuickJS
             }
         }
         
-        public ITimer Timer { get; }
+        public ITimer Timer { get; private set; }
+        
+        public IDispatcher Dispatcher { get; }
         
         public Callback FireEventByRefCallback;
         
         public EngineContext(EngineOptions engineOptions)
         {
             this.Options = engineOptions;
-            LocalStorage = new LocalStorage();
-            
             Source = engineOptions.Source;
-            // Timer = options.Timer;
-            // Dispatcher = CreateDispatcher();
-            // Globals = options.Globals;
-            // OnRestart = options.OnRestart ?? (() => { });
-            // CalculatesLayout = options.CalculatesLayout;
-            // Location = new Location(this);
-            // MediaProvider = options.MediaProvider;
-            // CursorAPI = new CursorAPI(this);
-           
             
-            // Dispatcher.OnEveryUpdate(UpdateElementsRecursively);
-            // Dispatcher.OnEveryLateUpdate(LateUpdateElementsRecursively);
-            
+            Timer = UnscaledTimer.Instance;
+            Dispatcher = CreateDispatcher();
             EngineFactory = JavascriptEngineHelpers.GetEngineFactory(engineOptions.EngineType);
 
 #if UNITY_EDITOR
-            // Runtime contexts are disposed on reload (by OnDisable), but this is required for editor contexts
             UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += Dispose;
 #endif
         }
-        
-        
         
         public void Initialize(Action callback)
         {
@@ -106,13 +93,28 @@ namespace QuickJS
             {
                 CreateBaseEngine(Debug, AwaitDebugger, () => {
                     engine.SetGlobal("Context", this);
-                    engine.SetGlobal("localStorage", LocalStorage);
-                    
-                    EngineInitialized = true;
                     callback?.Invoke();
                 });
             }
             else callback?.Invoke();
+        }
+        
+        
+        public void RunMainScript(ScriptSource source)
+        {
+            source.GetScript((code) =>
+            {
+                RunMainScript(code);
+            }, Dispatcher, true);
+            
+        }
+
+        public void RunMainScript(string code)
+        {
+            Initialize(() =>
+            {
+                Engine.TryExecute(code, "QuickJs/main");
+            });
         }
 
         public void Update()
@@ -138,6 +140,10 @@ namespace QuickJS
             // foreach (var item in Disposables) item?.Invoke();
             Engine?.Dispose();
         }
+        
+        public IDispatcher CreateDispatcher() => Application.isPlaying && !IsEditorContext ?
+            RuntimeDispatcherBehavior.Create(this, Timer) as IDispatcher :
+            new EditorDispatcher(this);
         
         void CreateBaseEngine(bool debug, bool awaitDebugger, Action onInitialize)
         {

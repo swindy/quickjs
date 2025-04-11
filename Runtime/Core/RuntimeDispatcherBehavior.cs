@@ -4,7 +4,6 @@ using UnityEngine;
 
 namespace QuickJS.Core
 {
-    
     [DefaultExecutionOrder(-50)]
     public class RuntimeDispatcherBehavior : MonoBehaviour
     {
@@ -12,7 +11,7 @@ namespace QuickJS.Core
 
         public static RuntimeDispatcher Create(EngineContext ctx, ITimer timer = null)
         {
-            var go = new GameObject("React Unity Runtime Dispatcher");
+            var go = new GameObject(" QuickJs Runtime Dispatcher");
             var behavior = go.AddComponent<RuntimeDispatcherBehavior>();
             var dispatcher = new RuntimeDispatcher(ctx, behavior, timer);
             DontDestroyOnLoad(go);

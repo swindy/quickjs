@@ -1,4 +1,7 @@
 using System;
+using System.Collections;
+using System.IO;
+using QuickJS.Core;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -16,17 +19,16 @@ namespace QuickJS
         
         public enum ScriptSourceType
         {
-            TextAsset = 0,
-            File = 1,
-            Url = 2,
-            Resource = 3,
-            Raw = 4,
+            File = 0,
+            Url = 1,
+            Resource = 2,
+            Raw = 3,
         }
         
-        public ScriptSourceType SourceType = ScriptSourceType.TextAsset;
+        public ScriptSourceType SourceType = ScriptSourceType.Resource;
         public TextAsset SourceAsset;
         public bool Watch = true;
-        public string SourcePath;
+        public string SourceFile;
         public string SourceText;
         public string ResourcesPath;
         public DevServerType UseDevServer = DevServerType.InEditor;
@@ -36,13 +38,13 @@ namespace QuickJS
 #else
             UseDevServer == DevServerType.Always;
 #endif
-        public string DevServer = "http://localhost:3000";
-        private const string DevServerFilename = "/index.js";
+        
         private bool DevServerFailed = false;
         
-        public ScriptSourceType Type = ScriptSourceType.TextAsset;
-        
         public bool IsDevServer => !DevServerFailed && ShouldUseDevServer && !string.IsNullOrWhiteSpace(DevServer);
+        
+        
+        public string DevServer = "http://localhost:3000";
         
         public string DevServerFile
         {
@@ -52,7 +54,7 @@ namespace QuickJS
                 var path = serverUrl.PathAndQuery;
                 if (string.IsNullOrWhiteSpace(path) || path == "/")
                 {
-                    if (Uri.TryCreate(serverUrl, DevServerFilename, out var res)) return res.AbsoluteUri;
+                    if (Uri.TryCreate(serverUrl, SourceFile, out var res)) return res.AbsoluteUri;
                 }
                 return serverUrl.AbsoluteUri;
             }
@@ -66,17 +68,14 @@ namespace QuickJS
 
                 switch (SourceType)
                 {
-                    case ScriptSourceType.TextAsset:
-                        res = SourceAsset.name;
-                        break;
                     case ScriptSourceType.File:
-                        res = SourcePath;
+                        res = SourceFile;
                         break;
                     case ScriptSourceType.Url:
-                        res = SourcePath;
+                        res = SourceFile;
                         break;
                     case ScriptSourceType.Resource:
-                        res = SourcePath;
+                        res = SourceFile;
                         break;
                     case ScriptSourceType.Raw:
                         res = "Inline Script";
@@ -97,7 +96,7 @@ namespace QuickJS
         {
             SourceType = source.SourceType;
             SourceAsset = source.SourceAsset;
-            SourcePath = source.SourcePath;
+            SourceFile = source.SourceFile;
             SourceText = source.SourceText;
             ResourcesPath = source.ResourcesPath;
             UseDevServer = source.UseDevServer;
@@ -109,7 +108,7 @@ namespace QuickJS
             return new ScriptSource()
             {
                 SourceType = ScriptSourceType.Resource,
-                SourcePath = path,
+                SourceFile = path,
                 UseDevServer = DevServerType.Never,
                 Watch = false
             };
@@ -132,20 +131,11 @@ namespace QuickJS
 
             if (SourceType == ScriptSourceType.File || SourceType == ScriptSourceType.Resource)
             {
-                return SourcePath;
-            }
-            else if (SourceType == ScriptSourceType.TextAsset)
-            {
-#if UNITY_EDITOR
-                var srcAsset = UnityEditor.AssetDatabase.GetAssetPath(SourceAsset);
-                if (!string.IsNullOrWhiteSpace(srcAsset)) return srcAsset;
-#endif
-
-                return string.IsNullOrEmpty(ResourcesPath) ? "Assets/Resources/react/index.js" : ResourcesPath;
+                return SourceFile;
             }
             else if (SourceType == ScriptSourceType.Url)
             {
-                var href = SourcePath;
+                var href = SourceFile;
 
                 var abs = Application.absoluteURL;
                 var url = new URL(href, abs);
@@ -162,38 +152,105 @@ namespace QuickJS
             {
                 Uri.TryCreate(DevServerFile, UriKind.Absolute, out uri);
             }
-            else if (Type == ScriptSourceType.File)
+            else if (SourceType == ScriptSourceType.File)
             {
-                Uri.TryCreate(SourcePath, UriKind.RelativeOrAbsolute, out uri);
+                Uri.TryCreate(SourceFile, UriKind.RelativeOrAbsolute, out uri);
             }
-            else if (Type == ScriptSourceType.Resource)
+            else if (SourceType == ScriptSourceType.Resource)
             {
-                var url = string.IsNullOrEmpty(ResourcesPath) ? ("Assets/Resources/" + SourcePath) : ResourcesPath;
+                var url = string.IsNullOrEmpty(ResourcesPath) ? ("Assets/Resources/" + SourceFile) : ResourcesPath;
                 Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out uri);
             }
-            else if (Type == ScriptSourceType.TextAsset)
+            else if (SourceType == ScriptSourceType.Url)
             {
-                string url = "";
-#if UNITY_EDITOR
-                var srcAsset = UnityEditor.AssetDatabase.GetAssetPath(SourceAsset);
-                if (!string.IsNullOrWhiteSpace(srcAsset))
-                    url = srcAsset;
-#endif
-
-                if (string.IsNullOrWhiteSpace(url))
-                    url = string.IsNullOrEmpty(ResourcesPath) ? "Assets/Resources/react/index.js" : ResourcesPath;
-
-                Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out uri);
-            }
-            else if (Type == ScriptSourceType.Url)
-            {
-                var href = SourcePath;
+                var href = SourceFile;
 
                 var abs = Application.absoluteURL;
                 var url = new URL(href, abs);
                 Uri.TryCreate(url.href, UriKind.Absolute, out uri);
             }
             return uri;
+        }
+        
+        public IDisposable GetScript(Action<string> callback, IDispatcher dispatcher, bool useDevServer = true)
+        {
+            if (useDevServer && IsDevServer)
+            {
+                var request = UnityEngine.Networking.UnityWebRequest.Get(DevServerFile);
+
+                return new DisposableHandle(dispatcher,
+                    dispatcher.StartDeferred(
+                        WatchWebRequest(request, callback, err => {
+                            DevServerFailed = true;
+                            Debug.LogWarning("DevServer seems to be unaccessible. Falling back to the original script. If this is unexpected, make sure the DevServer is running at " + DevServer);
+                            GetScript(callback, dispatcher, false);
+                        })));
+            }
+
+
+            var filePath = "";
+
+            switch (SourceType)
+            {
+                case ScriptSourceType.File:
+#if UNITY_EDITOR
+                    filePath = StripHashAndSearch(SourceFile);
+                    callback(File.ReadAllText(filePath));
+                    break;
+#endif
+                case ScriptSourceType.Url:
+#if UNITY_EDITOR
+                    var request = UnityEngine.Networking.UnityWebRequest.Get(GetResolvedSourceUrl(false));
+                    return new DisposableHandle(dispatcher,
+                        dispatcher.StartDeferred(WatchWebRequest(request, callback)));
+#else
+                    throw new Exception("REACT_DISABLE_WEB is defined. Web API cannot be used.");
+#endif
+                case ScriptSourceType.Resource:
+                    var asset = Resources.Load<TextAsset>(StripHashAndSearch(SourceFile));
+                    if (asset)
+                    {
+#if UNITY_EDITOR
+                        filePath = GetResourcePath(asset);
+#endif
+                        callback(asset.text);
+                    }
+                    else callback(null);
+                    break;
+                case ScriptSourceType.Raw:
+                    callback(SourceText);
+                    break;
+                default:
+                    callback(null);
+                    break;
+            }
+            
+            return null;
+        }
+        
+        static internal IEnumerator WatchWebRequest(
+            UnityEngine.Networking.UnityWebRequest request,
+            Action<string> callback,
+            Action<string> errorCallback = null
+        )
+        {
+            yield return request.SendWebRequest();
+            if (!string.IsNullOrWhiteSpace(request.error))
+                errorCallback?.Invoke(request.error);
+            else
+                callback(request.downloadHandler.text);
+        }
+        
+#if UNITY_EDITOR
+        private static string GetResourcePath(UnityEngine.Object asset)
+        {
+            return Path.Combine(Directory.GetCurrentDirectory(), UnityEditor.AssetDatabase.GetAssetPath(asset).Replace('/', '\\'));
+        }
+#endif
+        
+        private string StripHashAndSearch(string url)
+        {
+            return url.Split('#')[0].Split('?')[0];
         }
         
     }

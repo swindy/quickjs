@@ -9,7 +9,7 @@ using UnityEditor;
 
 namespace QuickJS.Core
 {
-public class EditorDispatcher : BaseDispatcher<object>
+    public class EditorDispatcher : BaseDispatcher<object>
     {
 #if UNITY_EDITOR
         static EventInfo TickEvent;
@@ -58,7 +58,9 @@ public class EditorDispatcher : BaseDispatcher<object>
         {
             Scheduler = new DefaultScheduler(this, ctx);
 #if UNITY_EDITOR
-            TickDelegate = TickEvent == null ? null : Delegate.CreateDelegate(TickEvent.EventHandlerType, this, this.GetType().GetMethod(nameof(Update)));
+            TickDelegate = TickEvent == null
+                ? null
+                : Delegate.CreateDelegate(TickEvent.EventHandlerType, this, this.GetType().GetMethod(nameof(Update)));
 
             AddTick(TickDelegate);
             EditorApplication.update += LateUpdate;
@@ -71,7 +73,9 @@ public class EditorDispatcher : BaseDispatcher<object>
         protected override object StartCoroutine(IEnumerator cr) => null;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected override void StopCoroutine(object cr) { }
+        protected override void StopCoroutine(object cr)
+        {
+        }
 
 
         protected override IEnumerator TimeoutCoroutine(Action callback, float time, int handle)
@@ -82,7 +86,6 @@ public class EditorDispatcher : BaseDispatcher<object>
 
         protected override IEnumerator IntervalCoroutine(Action callback, float interval, int handle)
         {
-
             while (true)
             {
                 yield return null;
