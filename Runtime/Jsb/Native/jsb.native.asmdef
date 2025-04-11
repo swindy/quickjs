@@ -1,0 +1,16 @@
+{
+    "name": "jsb.native",
+    "rootNamespace": "",
+    "references": [
+        "GUID:595d45be140461240b6b4358dc45f2c0"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}
