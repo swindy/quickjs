@@ -104,7 +104,7 @@ namespace QuickJS
         public void Execute(string code, string fileName = null,
             JavascriptDocumentType documentType = JavascriptDocumentType.Script)
         {
-            var isMainFile = fileName == "QuickJS/main";
+            var isMainFile = fileName == "QuickJs/main";
 
             var remoteUrl = !isMainFile ? null : Context.Source.GetRemoteUrl();
 
